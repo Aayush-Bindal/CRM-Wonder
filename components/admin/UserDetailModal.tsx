@@ -14,6 +14,7 @@ import {
   UserCheck,
   AlertCircle,
   CheckCircle2,
+  Trash2,
 } from 'lucide-react';
 
 interface UserDetailModalProps {
@@ -85,7 +86,7 @@ function LeadStatusDonutChart({
 }
 
 export default function UserDetailModal({ profile, onClose }: UserDetailModalProps) {
-  const { leads, currentUser, resetUserPassword } = useCRM();
+  const { leads, currentUser, resetUserPassword, deleteUser } = useCRM();
 
   const [showResetForm, setShowResetForm] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
@@ -93,6 +94,12 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSuccessPassword, setResetSuccessPassword] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const isSelf = currentUser?.id === profile.id;
 
   const isRep = profile.role === 'Sales_Rep';
 
@@ -160,6 +167,21 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
     }
 
     setResetSuccessPassword(newPassword);
+  };
+
+  const handleDelete = async () => {
+    setDeleteError(null);
+    setIsDeleting(true);
+
+    const result = await deleteUser(profile.id);
+    setIsDeleting(false);
+
+    if (!result.success) {
+      setDeleteError(result.error || 'Failed to delete user.');
+      return;
+    }
+
+    onClose();
   };
 
   return (
@@ -320,6 +342,70 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
               />
             </div>
           )}
+
+          {/* Delete Account */}
+          <div className="border border-[#e8e8e8] rounded-lg p-4">
+            <h3 className="text-[11px] font-mono uppercase tracking-wider text-[#828282] mb-2.5 flex items-center gap-1.5">
+              <Trash2 className="w-3.5 h-3.5" />
+              Danger Zone
+            </h3>
+
+            {isSelf ? (
+              <p className="text-xs text-[#828282]">You cannot delete your own account.</p>
+            ) : deleteError ? (
+              <div className="space-y-2">
+                <div className="p-2 bg-red-50 border border-red-200 text-[11px] text-red-700 rounded flex items-center gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{deleteError}</span>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteError(null);
+                    }}
+                    className="px-3 py-1.5 text-xs font-mono text-[#4d4d4d] hover:bg-[#efefef] rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : showDeleteConfirm ? (
+              <div className="space-y-2">
+                <p className="text-xs text-[#4d4d4d]">
+                  Delete {profile.full_name}&apos;s account? This cannot be undone.
+                </p>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-3 py-1.5 text-xs font-mono text-[#4d4d4d] hover:bg-[#efefef] rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    id="confirm-delete-user-btn"
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-medium transition-colors rounded disabled:opacity-50"
+                  >
+                    {isDeleting ? 'Deleting...' : 'Confirm Delete'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                id="delete-user-btn"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-red-600 hover:bg-red-50 rounded transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Account
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

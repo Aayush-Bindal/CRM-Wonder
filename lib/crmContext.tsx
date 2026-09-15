@@ -68,6 +68,7 @@ interface CRMContextType {
     role: UserRole;
   }) => Promise<{ success: boolean; error?: string }>;
   resetUserPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -446,6 +447,32 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Admin-only: permanently deletes a team member's account
+  const deleteUser = useCallback(async (userId: string) => {
+    const client = getSupabaseClient();
+    if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+    const { data: sessionData } = await client.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return { success: false, error: 'Not authenticated.' };
+
+    try {
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        return { success: false, error: result.error || 'Failed to delete user.' };
+      }
+      setProfiles((prev) => prev.filter((p) => p.id !== userId));
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Unable to reach the server. Please try again.' };
+    }
+  }, []);
+
   return (
     <CRMContext.Provider
       value={{
@@ -471,6 +498,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         updateLeadStatus,
         createRepAccount,
         resetUserPassword,
+        deleteUser,
       }}
     >
       {children}
