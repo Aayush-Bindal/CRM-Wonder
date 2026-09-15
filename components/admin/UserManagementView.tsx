@@ -80,7 +80,7 @@ export default function UserManagementView() {
             className="px-4 py-2 bg-[#202020] hover:bg-black text-white text-xs font-medium transition-colors flex items-center justify-center gap-2 shrink-0"
           >
             <UserPlus className="w-4 h-4 text-[#ff682c]" />
-            <span>+ Add Team Member</span>
+            <span>Add Team Member</span>
           </button>
         </div>
 
