@@ -32,7 +32,7 @@ export default function UserManagementView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim() || !phone.trim() || !password.trim()) return;
+    if (!fullName.trim() || !email.trim() || !password.trim()) return;
 
     setFormError(null);
     setIsSubmitting(true);
@@ -146,10 +146,9 @@ export default function UserManagementView() {
 
               <div>
                 <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
-                  Phone (WhatsApp / SMS) <span className="text-red-500">*</span>
+                  Phone (WhatsApp / SMS) <span className="text-[#828282] normal-case">(optional)</span>
                 </label>
                 <input
-                  required
                   type="tel"
                   placeholder="98765 43210"
                   value={phone}

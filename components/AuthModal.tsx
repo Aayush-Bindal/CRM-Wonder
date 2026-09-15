@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
+import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function AuthModal() {
   const { login } = useCRM();
@@ -60,17 +60,17 @@ export default function AuthModal() {
                 htmlFor="login-identifier"
                 className="block text-xs font-mono uppercase tracking-wider text-[#4d4d4d] mb-1"
               >
-                Email or Phone Number
+                Email
               </label>
               <div className="relative">
-                <User className="w-4 h-4 text-[#828282] absolute left-3 top-3" />
+                <Mail className="w-4 h-4 text-[#828282] absolute left-3 top-3" />
                 <input
                   id="login-identifier"
-                  type="text"
+                  type="email"
                   required
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="name@gmail.com or 98765 43210"
+                  placeholder="name@gmail.com"
                   className="w-full bg-[#ffffff] border border-[#e8e8e8] pl-9 pr-3 py-2.5 text-sm text-[#202020] focus:outline-none focus:border-[#202020]"
                 />
               </div>

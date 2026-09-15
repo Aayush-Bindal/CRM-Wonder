@@ -148,7 +148,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     return followups.filter((f) => f.followup_date === todayStr && f.status === 'Pending');
   }, [followups]);
 
-  // Sign in with an email or phone number, resolving phone -> email server-side first
+  // Sign in with email + password
   const login = useCallback(
     async (identifier: string, password: string): Promise<{ success: boolean; error?: string }> => {
       const client = getSupabaseClient();
@@ -156,28 +156,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Supabase is not configured.' };
       }
 
-      let email = identifier.trim();
-
-      if (!email.includes('@')) {
-        try {
-          const res = await fetch('/api/auth/resolve-phone', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: email }),
-          });
-          const result = await res.json();
-          if (!res.ok || !result.email) {
-            return {
-              success: false,
-              error: 'No account found with this email or phone number. Please check your credentials or contact your administrator.',
-            };
-          }
-          email = result.email;
-        } catch {
-          return { success: false, error: 'Unable to reach the server. Please try again.' };
-        }
-      }
-
+      const email = identifier.trim();
       const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) {
         return {

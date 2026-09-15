@@ -18,9 +18,9 @@ export async function POST(req: NextRequest) {
   const password = String(body.password || '');
   const role = body.role === 'Admin' ? 'Admin' : 'Sales_Rep';
 
-  if (!fullName || !email || !phone || password.length < 6) {
+  if (!fullName || !email || password.length < 6) {
     return NextResponse.json(
-      { error: 'Full name, email, phone, and a password of at least 6 characters are required.' },
+      { error: 'Full name, email, and a password of at least 6 characters are required.' },
       { status: 400 }
     );
   }
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     email,
     password,
     email_confirm: true,
-    user_metadata: { full_name: fullName, phone, role },
+    user_metadata: { full_name: fullName, phone: phone || null, role },
   });
 
   if (createError || !created.user) {
