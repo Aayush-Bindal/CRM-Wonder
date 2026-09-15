@@ -2,31 +2,26 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Lock, User, ArrowRight, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react';
+import { Lock, User, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function AuthModal() {
-  const { login, loginAs, profiles } = useCRM();
+  const { login } = useCRM();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    setTimeout(() => {
-      const result = login(identifier, password);
-      if (!result.success) {
-        setError(result.error || 'Unable to sign in. Please check your credentials.');
-      }
-      setLoading(false);
-    }, 300);
+    const result = await login(identifier, password);
+    if (!result.success) {
+      setError(result.error || 'Unable to sign in. Please check your credentials.');
+    }
+    setLoading(false);
   };
-
-  const adminAccount = profiles.find((p) => p.role === 'Admin');
-  const repAccounts = profiles.filter((p) => p.role === 'Sales_Rep');
 
   return (
     <div className="min-h-screen bg-[#ffffff] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
@@ -120,53 +115,6 @@ export default function AuthModal() {
               <br />
               Please contact your organization administrator.
             </p>
-          </div>
-
-          {/* Quick Sign In Profiles */}
-          <div className="mt-5 pt-4 border-t border-[#e0e0e0]">
-            <p className="text-[11px] font-mono uppercase tracking-wider text-[#828282] mb-2 text-center">
-              Quick Sign In (Select Account)
-            </p>
-            <div className="space-y-1.5">
-              {adminAccount && (
-                <button
-                  id="quick-login-admin"
-                  type="button"
-                  onClick={() => loginAs(adminAccount.id)}
-                  className="w-full text-left px-3 py-2 bg-white hover:bg-[#f5f5f5] text-xs border border-[#e8e8e8] rounded flex items-center justify-between transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#202020]" />
-                    <span className="font-medium text-[#202020]">
-                      {adminAccount.full_name}
-                    </span>
-                  </div>
-                  <span className="font-mono text-[10px] text-[#ff682c] font-semibold">
-                    ADMIN
-                  </span>
-                </button>
-              )}
-
-              {repAccounts.slice(0, 2).map((rep) => (
-                <button
-                  key={rep.id}
-                  id={`quick-login-${rep.id}`}
-                  type="button"
-                  onClick={() => loginAs(rep.id)}
-                  className="w-full text-left px-3 py-2 bg-white hover:bg-[#f5f5f5] text-xs border border-[#e8e8e8] rounded flex items-center justify-between transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="w-3.5 h-3.5 text-[#ff682c]" />
-                    <span className="font-medium text-[#202020]">
-                      {rep.full_name}
-                    </span>
-                  </div>
-                  <span className="font-mono text-[10px] text-[#828282]">
-                    SALES REP
-                  </span>
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </div>

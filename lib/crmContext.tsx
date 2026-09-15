@@ -9,15 +9,8 @@ import {
   Followup,
   UserRole,
   InteractionType,
-  FollowupStatus,
 } from './types';
-import {
-  INITIAL_PROFILES,
-  INITIAL_LEADS,
-  INITIAL_INTERACTIONS,
-  INITIAL_FOLLOWUPS,
-  getTodayDateStr,
-} from './mockData';
+import { getTodayDateStr } from './utils';
 import { getSupabaseClient, getSupabaseConfig } from './supabase/client';
 
 interface CRMContextType {
@@ -27,19 +20,19 @@ interface CRMContextType {
   interactions: Interaction[];
   followups: Followup[];
   isSupabaseConfigured: boolean;
+  isLoading: boolean;
   activeRole: UserRole | null;
-  
-  // RLS-scoped data helpers
+
+  // RLS already scopes these server-side, kept as aliases for consumers
   visibleLeads: Lead[];
   visibleFollowups: Followup[];
   visibleInteractions: Interaction[];
   todayPriorityFollowups: Followup[];
-  
-  // Actions
-  loginAs: (profileId: string) => void;
-  login: (identifier: string, password: string) => { success: boolean; error?: string };
-  logout: () => void;
-  
+
+  // Auth
+  login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
+
   // Operations
   addLead: (data: {
     name: string;
@@ -53,8 +46,8 @@ interface CRMContextType {
     assigned_rep_id?: string;
     initialNotes?: string;
     nextFollowupDate?: string;
-  }) => Promise<{ lead: Lead; success: boolean }>;
-  
+  }) => Promise<{ lead: Lead | null; success: boolean; error?: string }>;
+
   logInteraction: (data: {
     lead_id: string;
     notes: string;
@@ -62,193 +55,150 @@ interface CRMContextType {
     nextFollowupDate?: string;
     nextFollowupNotes?: string;
   }) => Promise<boolean>;
-  
+
   completeFollowup: (followupId: string, resolutionNotes?: string) => Promise<boolean>;
   rescheduleFollowup: (followupId: string, newDate: string, notes?: string) => Promise<boolean>;
   reassignLead: (leadId: string, newRepId: string) => Promise<boolean>;
   updateLeadStatus: (leadId: string, status: LeadStatus) => Promise<boolean>;
-  createRepAccount: (data: { full_name: string; email: string; phone: string; password: string; role: UserRole }) => Promise<boolean>;
-
-  // Edge Function & Automation simulation
-  runDailyCronCheck: () => {
-    birthdaysFound: Lead[];
-    anniversariesFound: Lead[];
-    priorityCount: number;
-    summaryText: string;
-  };
-}
-
-function getLocalStorageItem<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return parsed !== null && parsed !== undefined ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
+  createRepAccount: (data: {
+    full_name: string;
+    email: string;
+    phone: string;
+    password: string;
+    role: UserRole;
+  }) => Promise<{ success: boolean; error?: string }>;
+  resetUserPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
 
 export function CRMProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<Profile | null>(INITIAL_PROFILES[1]);
-  const [profiles, setProfiles] = useState<Profile[]>(INITIAL_PROFILES);
-  const [leads, setLeads] = useState<Lead[]>(INITIAL_LEADS);
-  const [interactions, setInteractions] = useState<Interaction[]>(INITIAL_INTERACTIONS);
-  const [followups, setFollowups] = useState<Followup[]>(INITIAL_FOLLOWUPS);
-  const [isStorageLoaded, setIsStorageLoaded] = useState(false);
-
-  // Load from local storage safely once mounted on client to prevent hydration mismatch
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      try {
-        const savedUser = localStorage.getItem('estateflow_current_user');
-        if (savedUser) {
-          const parsed = JSON.parse(savedUser);
-          if (parsed && parsed.id) setCurrentUser(parsed);
-        }
-        const savedLeads = localStorage.getItem('estateflow_leads');
-        if (savedLeads) {
-          const parsed = JSON.parse(savedLeads);
-          if (Array.isArray(parsed) && parsed.length > 0) setLeads(parsed);
-        }
-        const savedInts = localStorage.getItem('estateflow_interactions');
-        if (savedInts) {
-          const parsed = JSON.parse(savedInts);
-          if (Array.isArray(parsed)) setInteractions(parsed);
-        }
-        const savedFups = localStorage.getItem('estateflow_followups');
-        if (savedFups) {
-          const parsed = JSON.parse(savedFups);
-          if (Array.isArray(parsed)) setFollowups(parsed);
-        }
-        const savedProfiles = localStorage.getItem('estateflow_profiles');
-        if (savedProfiles) {
-          const parsed = JSON.parse(savedProfiles);
-          if (Array.isArray(parsed) && parsed.length > 0) setProfiles(parsed);
-        }
-      } catch {
-        // ignore error and keep initial defaults
-      } finally {
-        setIsStorageLoaded(true);
-      }
-    }, 0);
-    return () => clearTimeout(timer);
-  }, []);
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [interactions, setInteractions] = useState<Interaction[]>([]);
+  const [followups, setFollowups] = useState<Followup[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [isSupabaseConfigured] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
     const config = getSupabaseConfig();
-    return Boolean(config && config.url && config.key);
+    return Boolean(config.url && config.key);
   });
 
-  // Save to local storage for persistence across reloads only after storage is loaded
+  const loadData = useCallback(async (userId: string) => {
+    const client = getSupabaseClient();
+    if (!client) return;
+
+    const [profileRes, profilesRes, leadsRes, interactionsRes, followupsRes] = await Promise.all([
+      client.from('profiles').select('*').eq('id', userId).single(),
+      client.from('profiles').select('*').order('full_name', { ascending: true }),
+      client.from('leads').select('*').order('created_at', { ascending: false }),
+      client.from('interactions').select('*').order('created_at', { ascending: false }),
+      client.from('followups').select('*').order('followup_date', { ascending: true }),
+    ]);
+
+    setCurrentUser((profileRes.data as Profile) || null);
+    setProfiles((profilesRes.data as Profile[]) || []);
+    setLeads((leadsRes.data as Lead[]) || []);
+    setInteractions((interactionsRes.data as Interaction[]) || []);
+    setFollowups((followupsRes.data as Followup[]) || []);
+  }, []);
+
+  const clearData = useCallback(() => {
+    setCurrentUser(null);
+    setProfiles([]);
+    setLeads([]);
+    setInteractions([]);
+    setFollowups([]);
+  }, []);
+
+  // Track the signed-in session and (re)load data whenever it changes
   useEffect(() => {
-    if (!isStorageLoaded) return;
-    try {
-      localStorage.setItem('estateflow_leads', JSON.stringify(leads));
-      localStorage.setItem('estateflow_interactions', JSON.stringify(interactions));
-      localStorage.setItem('estateflow_followups', JSON.stringify(followups));
-      localStorage.setItem('estateflow_profiles', JSON.stringify(profiles));
-      if (currentUser) {
-        localStorage.setItem('estateflow_current_user', JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem('estateflow_current_user');
-      }
-    } catch {
-      // ignore storage quota errors
+    const client = getSupabaseClient();
+    if (!client) {
+      setIsLoading(false);
+      return;
     }
-  }, [isStorageLoaded, leads, interactions, followups, profiles, currentUser]);
 
-  // Mandatory RLS Simulation:
-  // Reps must only be able to view, create, or update leads/interactions/followups assigned to their user_id.
-  // Admins have full access across the entire system.
-  const isAdmin = currentUser?.role === 'Admin';
+    let didInit = false;
 
-  const visibleLeads = React.useMemo(() => {
-    if (!currentUser) return [];
-    if (isAdmin) return leads;
-    return leads.filter((l) => l.assigned_rep_id === currentUser.id);
-  }, [leads, currentUser, isAdmin]);
-
-  const visibleFollowups = React.useMemo(() => {
-    if (!currentUser) return [];
-    if (isAdmin) return followups;
-    return followups.filter((f) => f.rep_id === currentUser.id);
-  }, [followups, currentUser, isAdmin]);
-
-  const visibleInteractions = React.useMemo(() => {
-    if (!currentUser) return [];
-    if (isAdmin) return interactions;
-    return interactions.filter((i) => {
-      // Direct rep attribution or on lead assigned to rep
-      const lead = leads.find((l) => l.id === i.lead_id);
-      return i.rep_id === currentUser.id || lead?.assigned_rep_id === currentUser.id;
+    const { data: listener } = client.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await loadData(session.user.id);
+      } else {
+        clearData();
+      }
+      if (!didInit) {
+        didInit = true;
+        setIsLoading(false);
+      }
     });
-  }, [interactions, leads, currentUser, isAdmin]);
 
-  // Today's Priority Followups: followup_date = TODAY and status = Pending
+    return () => {
+      listener.subscription.unsubscribe();
+    };
+  }, [loadData, clearData]);
+
+  const visibleLeads = leads;
+  const visibleFollowups = followups;
+  const visibleInteractions = interactions;
+
   const todayPriorityFollowups = React.useMemo(() => {
     const todayStr = getTodayDateStr();
-    return visibleFollowups.filter(
-      (f) => f.followup_date === todayStr && f.status === 'Pending'
-    );
-  }, [visibleFollowups]);
+    return followups.filter((f) => f.followup_date === todayStr && f.status === 'Pending');
+  }, [followups]);
 
-  const loginAs = useCallback(
-    (profileId: string) => {
-      // Direct account switching while an active session exists is disabled
-      if (currentUser) {
-        return;
-      }
-      const found = profiles.find((p) => p.id === profileId);
-      if (found) {
-        setCurrentUser(found);
-      }
-    },
-    [currentUser, profiles]
-  );
-
-  // Login with either email or phone number, verified against the account password.
+  // Sign in with an email or phone number, resolving phone -> email server-side first
   const login = useCallback(
-    (identifier: string, password: string): { success: boolean; error?: string } => {
-      const trimmedId = identifier.trim().toLowerCase();
-      const identifierDigits = identifier.replace(/\D/g, '');
+    async (identifier: string, password: string): Promise<{ success: boolean; error?: string }> => {
+      const client = getSupabaseClient();
+      if (!client) {
+        return { success: false, error: 'Supabase is not configured.' };
+      }
 
-      const found = profiles.find((p) => {
-        const emailMatch = p.email.toLowerCase() === trimmedId;
-        const phoneDigits = (p.phone || '').replace(/\D/g, '');
-        const phoneMatch =
-          identifierDigits.length >= 10 &&
-          phoneDigits.length >= 10 &&
-          phoneDigits.slice(-10) === identifierDigits.slice(-10);
-        return emailMatch || phoneMatch;
-      });
+      let email = identifier.trim();
 
-      if (!found) {
+      if (!email.includes('@')) {
+        try {
+          const res = await fetch('/api/auth/resolve-phone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone: email }),
+          });
+          const result = await res.json();
+          if (!res.ok || !result.email) {
+            return {
+              success: false,
+              error: 'No account found with this email or phone number. Please check your credentials or contact your administrator.',
+            };
+          }
+          email = result.email;
+        } catch {
+          return { success: false, error: 'Unable to reach the server. Please try again.' };
+        }
+      }
+
+      const { error } = await client.auth.signInWithPassword({ email, password });
+      if (error) {
         return {
           success: false,
-          error: 'No account found with this email or phone number. Please check your credentials or contact your administrator.',
+          error:
+            error.message === 'Invalid login credentials'
+              ? 'Incorrect email/phone or password.'
+              : error.message,
         };
       }
 
-      if (!found.password || found.password !== password) {
-        return { success: false, error: 'Incorrect password. Please try again.' };
-      }
-
-      setCurrentUser(found);
       return { success: true };
     },
-    [profiles]
+    []
   );
 
-  const logout = useCallback(() => {
-    setCurrentUser(null);
+  const logout = useCallback(async () => {
+    const client = getSupabaseClient();
+    if (client) await client.auth.signOut();
   }, []);
 
-  // Quick Add Lead: Captures details, optional note, and schedules followup in ONE workflow
   const addLead = useCallback(
     async (data: {
       name: string;
@@ -263,84 +213,71 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       initialNotes?: string;
       nextFollowupDate?: string;
     }) => {
-      const repId = data.assigned_rep_id || currentUser?.id || profiles[1].id;
-      const leadId = `lead-${Date.now()}`;
-      const nowStr = new Date().toISOString();
+      const client = getSupabaseClient();
+      if (!client || !currentUser) {
+        return { lead: null, success: false, error: 'Not authenticated.' };
+      }
 
-      const newLead: Lead = {
-        id: leadId,
-        name: data.name.trim(),
-        phone_1: data.phone_1.trim(),
-        mobile_2: data.mobile_2?.trim() || '',
-        address: data.address?.trim() || '',
-        dob: data.dob || '',
-        marriage_anniversary: data.marriage_anniversary || '',
-        preferred_property: data.preferred_property.trim(),
-        budget: data.budget?.trim() || '',
-        assigned_rep_id: repId,
-        status: 'New',
-        created_at: nowStr,
-        updated_at: nowStr,
-      };
+      const repId = data.assigned_rep_id || currentUser.id;
 
-      // Add to leads
+      const { data: inserted, error } = await client
+        .from('leads')
+        .insert({
+          name: data.name.trim(),
+          phone_1: data.phone_1.trim(),
+          mobile_2: data.mobile_2?.trim() || null,
+          address: data.address?.trim() || null,
+          dob: data.dob || null,
+          marriage_anniversary: data.marriage_anniversary || null,
+          preferred_property: data.preferred_property.trim(),
+          budget: data.budget?.trim() || null,
+          assigned_rep_id: repId,
+          status: 'New',
+        })
+        .select()
+        .single();
+
+      if (error || !inserted) {
+        return { lead: null, success: false, error: error?.message || 'Failed to create lead.' };
+      }
+
+      const newLead = inserted as Lead;
       setLeads((prev) => [newLead, ...prev]);
 
-      // If initial note provided, create interaction
       if (data.initialNotes && data.initialNotes.trim()) {
-        const newInt: Interaction = {
-          id: `int-${Date.now()}`,
-          lead_id: leadId,
-          rep_id: repId,
-          notes: data.initialNotes.trim(),
-          interaction_type: 'Phone Call',
-          created_at: nowStr,
-        };
-        setInteractions((prev) => [newInt, ...prev]);
+        const { data: interactionRow } = await client
+          .from('interactions')
+          .insert({
+            lead_id: newLead.id,
+            rep_id: repId,
+            notes: data.initialNotes.trim(),
+            interaction_type: 'Phone Call',
+          })
+          .select()
+          .single();
+        if (interactionRow) setInteractions((prev) => [interactionRow as Interaction, ...prev]);
       }
 
-      // If followup date provided, create followup
       if (data.nextFollowupDate) {
-        const newFup: Followup = {
-          id: `fup-${Date.now()}`,
-          lead_id: leadId,
-          rep_id: repId,
-          followup_date: data.nextFollowupDate,
-          status: 'Pending',
-          notes: `Follow up regarding ${data.preferred_property}`,
-          created_at: nowStr,
-        };
-        setFollowups((prev) => [newFup, ...prev]);
-      }
-
-      // Try inserting to real Supabase if connected
-      const client = getSupabaseClient();
-      if (client) {
-        try {
-          await client.from('leads').insert({
-            id: newLead.id,
-            name: newLead.name,
-            phone_1: newLead.phone_1,
-            mobile_2: newLead.mobile_2,
-            address: newLead.address,
-            dob: newLead.dob || null,
-            marriage_anniversary: newLead.marriage_anniversary || null,
-            preferred_property: newLead.preferred_property,
-            budget: newLead.budget,
-            assigned_rep_id: newLead.assigned_rep_id,
-            status: newLead.status,
-          });
-        } catch (e) {
-          console.warn('Supabase remote insert fallback:', e);
-        }
+        const { data: followupRow } = await client
+          .from('followups')
+          .insert({
+            lead_id: newLead.id,
+            rep_id: repId,
+            followup_date: data.nextFollowupDate,
+            status: 'Pending',
+            notes: `Follow up regarding ${data.preferred_property}`,
+          })
+          .select()
+          .single();
+        if (followupRow) setFollowups((prev) => [followupRow as Followup, ...prev]);
       }
 
       return { lead: newLead, success: true };
     },
-    [currentUser, profiles]
+    [currentUser]
   );
 
-  // Log conversation interaction notes
   const logInteraction = useCallback(
     async (data: {
       lead_id: string;
@@ -349,38 +286,36 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       nextFollowupDate?: string;
       nextFollowupNotes?: string;
     }) => {
-      if (!currentUser) return false;
-      const nowStr = new Date().toISOString();
-      const intId = `int-${Date.now()}`;
+      const client = getSupabaseClient();
+      if (!client || !currentUser) return false;
 
-      const newInt: Interaction = {
-        id: intId,
-        lead_id: data.lead_id,
-        rep_id: currentUser.id,
-        notes: data.notes.trim(),
-        interaction_type: data.interaction_type,
-        created_at: nowStr,
-      };
-
-      setInteractions((prev) => [newInt, ...prev]);
-
-      // Update lead updated_at timestamp and status if appropriate
-      setLeads((prev) =>
-        prev.map((l) => (l.id === data.lead_id ? { ...l, updated_at: nowStr } : l))
-      );
-
-      // If next followup specified, create it
-      if (data.nextFollowupDate) {
-        const newFup: Followup = {
-          id: `fup-${Date.now()}`,
+      const { data: interactionRow, error } = await client
+        .from('interactions')
+        .insert({
           lead_id: data.lead_id,
           rep_id: currentUser.id,
-          followup_date: data.nextFollowupDate,
-          status: 'Pending',
-          notes: data.nextFollowupNotes?.trim() || `Follow-up after ${data.interaction_type}`,
-          created_at: nowStr,
-        };
-        setFollowups((prev) => [newFup, ...prev]);
+          notes: data.notes.trim(),
+          interaction_type: data.interaction_type,
+        })
+        .select()
+        .single();
+
+      if (error || !interactionRow) return false;
+      setInteractions((prev) => [interactionRow as Interaction, ...prev]);
+
+      if (data.nextFollowupDate) {
+        const { data: followupRow } = await client
+          .from('followups')
+          .insert({
+            lead_id: data.lead_id,
+            rep_id: currentUser.id,
+            followup_date: data.nextFollowupDate,
+            status: 'Pending',
+            notes: data.nextFollowupNotes?.trim() || `Follow-up after ${data.interaction_type}`,
+          })
+          .select()
+          .single();
+        if (followupRow) setFollowups((prev) => [followupRow as Followup, ...prev]);
       }
 
       return true;
@@ -388,132 +323,149 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     [currentUser]
   );
 
-  // Complete a followup
   const completeFollowup = useCallback(
     async (followupId: string, resolutionNotes?: string) => {
-      const nowStr = new Date().toISOString();
-      setFollowups((prev) =>
-        prev.map((f) => {
-          if (f.id === followupId) {
-            return {
-              ...f,
-              status: 'Completed',
-              completed_at: nowStr,
-              notes: resolutionNotes ? `${f.notes || ''} [Completed]: ${resolutionNotes}` : f.notes,
-            };
-          }
-          return f;
-        })
-      );
+      const client = getSupabaseClient();
+      if (!client) return false;
+
+      const existing = followups.find((f) => f.id === followupId);
+      const newNotes = resolutionNotes
+        ? `${existing?.notes || ''} [Completed]: ${resolutionNotes}`
+        : existing?.notes;
+
+      const { data: updated, error } = await client
+        .from('followups')
+        .update({ status: 'Completed', completed_at: new Date().toISOString(), notes: newNotes })
+        .eq('id', followupId)
+        .select()
+        .single();
+
+      if (error || !updated) return false;
+      setFollowups((prev) => prev.map((f) => (f.id === followupId ? (updated as Followup) : f)));
       return true;
     },
-    []
+    [followups]
   );
 
-  // Reschedule followup
-  const rescheduleFollowup = useCallback(
-    async (followupId: string, newDate: string, notes?: string) => {
-      setFollowups((prev) =>
-        prev.map((f) => {
-          if (f.id === followupId) {
-            return {
-              ...f,
-              followup_date: newDate,
-              notes: notes || f.notes,
-            };
-          }
-          return f;
-        })
-      );
-      return true;
-    },
-    []
-  );
+  const rescheduleFollowup = useCallback(async (followupId: string, newDate: string, notes?: string) => {
+    const client = getSupabaseClient();
+    if (!client) return false;
 
-  // Admin reassigns lead to another sales rep
-  const reassignLead = useCallback(
-    async (leadId: string, newRepId: string) => {
-      if (!isAdmin) return false;
-      const nowStr = new Date().toISOString();
+    const updates: { followup_date: string; notes?: string } = { followup_date: newDate };
+    if (notes) updates.notes = notes;
 
-      setLeads((prev) =>
-        prev.map((l) => (l.id === leadId ? { ...l, assigned_rep_id: newRepId, updated_at: nowStr } : l))
-      );
+    const { data: updated, error } = await client
+      .from('followups')
+      .update(updates)
+      .eq('id', followupId)
+      .select()
+      .single();
 
-      // Also transfer pending followups for this lead to the new rep
-      setFollowups((prev) =>
-        prev.map((f) => (f.lead_id === leadId && f.status === 'Pending' ? { ...f, rep_id: newRepId } : f))
-      );
-
-      return true;
-    },
-    [isAdmin]
-  );
-
-  // Update a lead's pipeline stage (e.g. marking it Closed Won / Closed Lost)
-  const updateLeadStatus = useCallback(async (leadId: string, status: LeadStatus) => {
-    const nowStr = new Date().toISOString();
-    setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, status, updated_at: nowStr } : l))
-    );
+    if (error || !updated) return false;
+    setFollowups((prev) => prev.map((f) => (f.id === followupId ? (updated as Followup) : f)));
     return true;
   }, []);
 
-  // Admin provisions new Sales Rep
+  const reassignLead = useCallback(async (leadId: string, newRepId: string) => {
+    const client = getSupabaseClient();
+    if (!client) return false;
+
+    const { data: updatedLead, error } = await client
+      .from('leads')
+      .update({ assigned_rep_id: newRepId })
+      .eq('id', leadId)
+      .select()
+      .single();
+
+    if (error || !updatedLead) return false;
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? (updatedLead as Lead) : l)));
+
+    const { data: updatedFups } = await client
+      .from('followups')
+      .update({ rep_id: newRepId })
+      .eq('lead_id', leadId)
+      .eq('status', 'Pending')
+      .select();
+
+    if (updatedFups) {
+      const fups = updatedFups as Followup[];
+      setFollowups((prev) => prev.map((f) => fups.find((u) => u.id === f.id) || f));
+    }
+
+    return true;
+  }, []);
+
+  const updateLeadStatus = useCallback(async (leadId: string, status: LeadStatus) => {
+    const client = getSupabaseClient();
+    if (!client) return false;
+
+    const { data: updated, error } = await client
+      .from('leads')
+      .update({ status })
+      .eq('id', leadId)
+      .select()
+      .single();
+
+    if (error || !updated) return false;
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? (updated as Lead) : l)));
+    return true;
+  }, []);
+
+  // Admin-only: provisions a new team member via a server-side route (needs the service role key)
   const createRepAccount = useCallback(
     async (data: { full_name: string; email: string; phone: string; password: string; role: UserRole }) => {
-      if (!isAdmin) return false;
-      const nowStr = new Date().toISOString();
-      const newProfile: Profile = {
-        id: `usr-rep-${Date.now()}`,
-        full_name: data.full_name.trim(),
-        email: data.email.trim(),
-        phone: data.phone.trim(),
-        password: data.password.trim(),
-        role: data.role,
-        is_active: true,
-        created_at: nowStr,
-        updated_at: nowStr,
-      };
+      const client = getSupabaseClient();
+      if (!client) return { success: false, error: 'Supabase is not configured.' };
 
-      setProfiles((prev) => [...prev, newProfile]);
-      return true;
+      const { data: sessionData } = await client.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) return { success: false, error: 'Not authenticated.' };
+
+      try {
+        const res = await fetch('/api/admin/create-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify(data),
+        });
+        const result = await res.json();
+        if (!res.ok) {
+          return { success: false, error: result.error || 'Failed to create account.' };
+        }
+        if (result.profile) {
+          setProfiles((prev) => [...prev, result.profile as Profile]);
+        }
+        return { success: true };
+      } catch {
+        return { success: false, error: 'Unable to reach the server. Please try again.' };
+      }
     },
-    [isAdmin]
+    []
   );
 
-  // Run scheduled daily automation simulation
-  const runDailyCronCheck = useCallback(() => {
-    const today = new Date();
-    const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
-    const currentDay = String(today.getDate()).padStart(2, '0');
-    const todayStr = getTodayDateStr();
+  // Admin-only: sets a new password for a team member (real auth can't reveal the old one)
+  const resetUserPassword = useCallback(async (userId: string, newPassword: string) => {
+    const client = getSupabaseClient();
+    if (!client) return { success: false, error: 'Supabase is not configured.' };
 
-    const birthdaysFound = leads.filter((l) => {
-      if (!l.dob) return false;
-      const parts = l.dob.split('-');
-      return parts[1] === currentMonth && parts[2] === currentDay;
-    });
+    const { data: sessionData } = await client.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return { success: false, error: 'Not authenticated.' };
 
-    const anniversariesFound = leads.filter((l) => {
-      if (!l.marriage_anniversary) return false;
-      const parts = l.marriage_anniversary.split('-');
-      return parts[1] === currentMonth && parts[2] === currentDay;
-    });
-
-    const priorityPending = followups.filter(
-      (f) => f.followup_date === todayStr && f.status === 'Pending'
-    );
-
-    const summary = `Daily Automation executed: ${birthdaysFound.length} Birthday greetings, ${anniversariesFound.length} Anniversary greetings, and ${priorityPending.length} Today's Priority Follow-ups identified across the sales team.`;
-
-    return {
-      birthdaysFound,
-      anniversariesFound,
-      priorityCount: priorityPending.length,
-      summaryText: summary,
-    };
-  }, [leads, followups]);
+    try {
+      const res = await fetch('/api/admin/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId, newPassword }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        return { success: false, error: result.error || 'Failed to reset password.' };
+      }
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Unable to reach the server. Please try again.' };
+    }
+  }, []);
 
   return (
     <CRMContext.Provider
@@ -524,12 +476,12 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         interactions,
         followups,
         isSupabaseConfigured,
+        isLoading,
         activeRole: currentUser?.role || null,
         visibleLeads,
         visibleFollowups,
         visibleInteractions,
         todayPriorityFollowups,
-        loginAs,
         login,
         logout,
         addLead,
@@ -539,7 +491,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         reassignLead,
         updateLeadStatus,
         createRepAccount,
-        runDailyCronCheck,
+        resetUserPassword,
       }}
     >
       {children}

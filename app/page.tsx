@@ -31,7 +31,7 @@ import {
 const emptySubscribe = () => () => {};
 
 function CRMApp() {
-  const { currentUser, todayPriorityFollowups, visibleLeads } = useCRM();
+  const { currentUser, isSupabaseConfigured, isLoading, todayPriorityFollowups, visibleLeads } = useCRM();
 
   const isMounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const [activeTab, setActiveTab] = useState<string>('priority');
@@ -39,13 +39,30 @@ function CRMApp() {
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [isMobileTabMenuOpen, setIsMobileTabMenuOpen] = useState(false);
 
-  // Avoid hydration mismatch by waiting for client mount
-  if (!isMounted) {
+  // Avoid hydration mismatch by waiting for client mount, and wait for the
+  // initial Supabase session check before deciding what to render
+  if (!isMounted || isLoading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="flex items-center gap-2 font-mono text-xs text-[#828282]">
           <span className="w-2.5 h-2.5 rounded-full bg-[#ff682c] animate-pulse" />
           <span>WONDER CRM</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center px-4">
+        <div className="max-w-md w-full bg-[#efefef] border border-[#e8e8e8] rounded-lg p-6 text-center">
+          <p className="text-sm font-medium text-[#202020] mb-1">Supabase is not configured</p>
+          <p className="text-xs text-[#4d4d4d]">
+            Add <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code>,{' '}
+            <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, and{' '}
+            <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> to your <code className="font-mono">.env</code> file
+            and restart the dev server.
+          </p>
         </div>
       </div>
     );

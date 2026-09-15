@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { getRelativeDateStr } from '@/lib/mockData';
+import { getRelativeDateStr } from '@/lib/utils';
 import {
   X,
   User,

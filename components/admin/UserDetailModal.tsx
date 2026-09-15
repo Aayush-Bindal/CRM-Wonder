@@ -2,16 +2,18 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
+import { getSupabaseClient } from '@/lib/supabase/client';
 import { Profile } from '@/lib/types';
 import {
   X,
   Mail,
   Phone,
   Lock,
-  Eye,
+  KeyRound,
   ShieldCheck,
   UserCheck,
   AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface UserDetailModalProps {
@@ -83,12 +85,14 @@ function LeadStatusDonutChart({
 }
 
 export default function UserDetailModal({ profile, onClose }: UserDetailModalProps) {
-  const { leads, currentUser } = useCRM();
+  const { leads, currentUser, resetUserPassword } = useCRM();
 
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [showResetForm, setShowResetForm] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
-  const [revealedPassword, setRevealedPassword] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSuccessPassword, setResetSuccessPassword] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isRep = profile.role === 'Sales_Rep';
 
@@ -104,21 +108,58 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
   const failedCount = chartLeads.filter((l) => l.status === 'Closed Lost').length;
   const workingCount = chartLeads.length - successCount - failedCount;
 
-  const resetPasswordFlow = () => {
-    setShowPasswordForm(false);
+  const resetFlow = () => {
+    setShowResetForm(false);
     setAdminPassword('');
-    setRevealedPassword(null);
-    setPasswordError(null);
+    setNewPassword('');
+    setResetError(null);
+    setResetSuccessPassword(null);
   };
 
-  const handleRevealPassword = (e: React.FormEvent) => {
+  const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPasswordError(null);
-    if (!currentUser?.password || adminPassword !== currentUser.password) {
-      setPasswordError('Incorrect admin password. Please try again.');
+    setResetError(null);
+
+    if (newPassword.length < 6) {
+      setResetError('New password must be at least 6 characters.');
       return;
     }
-    setRevealedPassword(profile.password || 'No password set for this account.');
+
+    if (!currentUser) {
+      setResetError('Not authenticated.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    // Re-authenticate the admin's own password as a step-up confirmation
+    const client = getSupabaseClient();
+    if (!client) {
+      setIsSubmitting(false);
+      setResetError('Supabase is not configured.');
+      return;
+    }
+
+    const { error: reauthError } = await client.auth.signInWithPassword({
+      email: currentUser.email,
+      password: adminPassword,
+    });
+
+    if (reauthError) {
+      setIsSubmitting(false);
+      setResetError('Incorrect admin password. Please try again.');
+      return;
+    }
+
+    const result = await resetUserPassword(profile.id, newPassword);
+    setIsSubmitting(false);
+
+    if (!result.success) {
+      setResetError(result.error || 'Failed to reset password.');
+      return;
+    }
+
+    setResetSuccessPassword(newPassword);
   };
 
   return (
@@ -172,70 +213,94 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
             )}
           </div>
 
-          {/* Password Reveal */}
+          {/* Reset Password */}
           <div className="border border-[#e8e8e8] rounded-lg p-4 bg-[#f5f5f5]">
             <h3 className="text-[11px] font-mono uppercase tracking-wider text-[#828282] mb-2.5 flex items-center gap-1.5">
               <Lock className="w-3.5 h-3.5" />
               Account Password
             </h3>
 
-            {revealedPassword ? (
-              <div className="p-2.5 bg-white border border-[#d8d8d8] rounded font-mono text-sm text-[#202020] flex items-center justify-between gap-2">
-                <span className="truncate">{revealedPassword}</span>
-                <button
-                  id="hide-password-btn"
-                  onClick={resetPasswordFlow}
-                  className="text-[10px] text-[#828282] hover:text-[#202020] shrink-0"
-                >
-                  Hide
-                </button>
+            {resetSuccessPassword ? (
+              <div className="space-y-2">
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 rounded flex items-start gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>Password reset. Share the new password with {profile.full_name} securely.</span>
+                </div>
+                <div className="p-2.5 bg-white border border-[#d8d8d8] rounded font-mono text-sm text-[#202020] flex items-center justify-between gap-2">
+                  <span className="truncate">{resetSuccessPassword}</span>
+                  <button
+                    id="done-reset-password-btn"
+                    onClick={resetFlow}
+                    className="text-[10px] text-[#828282] hover:text-[#202020] shrink-0"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
-            ) : showPasswordForm ? (
-              <form onSubmit={handleRevealPassword} className="space-y-2">
-                {passwordError && (
+            ) : showResetForm ? (
+              <form onSubmit={handleResetPassword} className="space-y-2">
+                {resetError && (
                   <div className="p-2 bg-red-50 border border-red-200 text-[11px] text-red-700 rounded flex items-center gap-1.5">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                    <span>{passwordError}</span>
+                    <span>{resetError}</span>
                   </div>
                 )}
-                <label className="block text-[10px] font-mono uppercase text-[#828282]">
-                  Confirm your admin password
-                </label>
-                <input
-                  id="admin-password-confirm-input"
-                  type="password"
-                  autoFocus
-                  required
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
-                />
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
+                    Confirm your admin password
+                  </label>
+                  <input
+                    id="admin-reauth-password-input"
+                    type="password"
+                    autoFocus
+                    required
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
+                    New password for {profile.full_name}
+                  </label>
+                  <input
+                    id="new-password-input"
+                    type="password"
+                    required
+                    minLength={6}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="e.g. Welcome@123"
+                    className="w-full text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
+                  />
+                </div>
                 <div className="flex gap-2 justify-end pt-1">
                   <button
                     type="button"
-                    onClick={resetPasswordFlow}
+                    onClick={resetFlow}
                     className="px-3 py-1.5 text-xs font-mono text-[#4d4d4d] hover:bg-white rounded transition-colors"
                   >
                     Cancel
                   </button>
                   <button
-                    id="confirm-reveal-password-btn"
+                    id="confirm-reset-password-btn"
                     type="submit"
-                    className="px-3 py-1.5 bg-[#202020] text-white text-xs font-medium hover:bg-black rounded transition-colors"
+                    disabled={isSubmitting}
+                    className="px-3 py-1.5 bg-[#202020] text-white text-xs font-medium hover:bg-black rounded transition-colors disabled:opacity-50"
                   >
-                    Confirm &amp; Reveal
+                    {isSubmitting ? 'Resetting...' : 'Confirm & Reset'}
                   </button>
                 </div>
               </form>
             ) : (
               <button
-                id="view-password-btn"
-                onClick={() => setShowPasswordForm(true)}
+                id="reset-password-btn"
+                onClick={() => setShowResetForm(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#d8d8d8] text-xs font-mono text-[#202020] hover:bg-[#efefef] rounded transition-colors"
               >
-                <Eye className="w-3.5 h-3.5 text-[#ff682c]" />
-                View Password
+                <KeyRound className="w-3.5 h-3.5 text-[#ff682c]" />
+                Reset Password
               </button>
             )}
           </div>

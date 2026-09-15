@@ -13,6 +13,7 @@ import {
   Phone,
   CheckCircle2,
   Lock,
+  AlertCircle,
 } from 'lucide-react';
 
 export default function UserManagementView() {
@@ -25,19 +26,31 @@ export default function UserManagementView() {
   const [role, setRole] = useState<UserRole>('Sales_Rep');
   const [showAddForm, setShowAddForm] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !phone.trim() || !password.trim()) return;
+    if (!fullName.trim() || !email.trim() || !phone.trim() || !password.trim()) return;
 
-    await createRepAccount({
+    setFormError(null);
+    setIsSubmitting(true);
+
+    const result = await createRepAccount({
       full_name: fullName.trim(),
       email: email.trim(),
       phone: phone.trim(),
       password: password.trim(),
       role,
     });
+
+    setIsSubmitting(false);
+
+    if (!result.success) {
+      setFormError(result.error || 'Failed to create account.');
+      return;
+    }
 
     setFeedback(`Account created for ${fullName}! The representative can now log in.`);
     setFullName('');
@@ -94,6 +107,14 @@ export default function UserManagementView() {
             <h3 className="text-sm font-semibold text-[#202020] mb-3 font-mono uppercase">
               Add New Team Member
             </h3>
+
+            {formError && (
+              <div className="mb-3 p-2.5 bg-red-50 border border-red-200 text-xs text-red-700 rounded flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
@@ -111,9 +132,10 @@ export default function UserManagementView() {
 
               <div>
                 <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
-                  Email <span className="text-[#828282] normal-case">(optional)</span>
+                  Email <span className="text-red-500">*</span>
                 </label>
                 <input
+                  required
                   type="email"
                   placeholder="rachel.a@gmail.com"
                   value={email}
@@ -175,9 +197,10 @@ export default function UserManagementView() {
                 <button
                   id="confirm-create-account-btn"
                   type="submit"
-                  className="px-4 py-1.5 bg-[#202020] text-white text-xs font-medium hover:bg-black transition-colors"
+                  disabled={isSubmitting}
+                  className="px-4 py-1.5 bg-[#202020] text-white text-xs font-medium hover:bg-black transition-colors disabled:opacity-50"
                 >
-                  Create Account
+                  {isSubmitting ? 'Creating...' : 'Create Account'}
                 </button>
               </div>
             </form>
