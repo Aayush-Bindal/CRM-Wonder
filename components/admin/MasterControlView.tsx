@@ -2,16 +2,8 @@
 
 import React from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Lead, Interaction } from '@/lib/types';
-import {
-  Activity,
-  PhoneCall,
-  Home,
-  Users,
-  CheckCircle,
-  Clock,
-  ArrowUpRight,
-} from 'lucide-react';
+import { Lead } from '@/lib/types';
+import { Activity, Home } from 'lucide-react';
 
 interface MasterControlViewProps {
   onSelectLead: (lead: Lead) => void;

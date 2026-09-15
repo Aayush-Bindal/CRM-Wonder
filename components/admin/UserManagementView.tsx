@@ -4,17 +4,7 @@ import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Profile, UserRole } from '@/lib/types';
 import UserDetailModal from './UserDetailModal';
-import {
-  Users,
-  UserPlus,
-  ShieldCheck,
-  UserCheck,
-  Mail,
-  Phone,
-  CheckCircle2,
-  Lock,
-  AlertCircle,
-} from 'lucide-react';
+import { UserPlus, Mail, Phone, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function UserManagementView() {
   const { profiles, leads, createRepAccount } = useCRM();

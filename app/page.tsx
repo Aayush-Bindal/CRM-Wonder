@@ -18,15 +18,7 @@ import TeamFollowupsView from '@/components/admin/TeamFollowupsView';
 import FullLeadDatabaseView from '@/components/admin/FullLeadDatabaseView';
 import UserManagementView from '@/components/admin/UserManagementView';
 
-import {
-  Calendar,
-  Users,
-  Database,
-  ShieldCheck,
-  X,
-  Plus,
-  Menu,
-} from 'lucide-react';
+import { X, Plus, Menu } from 'lucide-react';
 
 const emptySubscribe = () => () => {};
 

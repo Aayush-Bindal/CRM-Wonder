@@ -3,18 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Lead, LeadStatus } from '@/lib/types';
-import {
-  Search,
-  Filter,
-  Phone,
-  Home,
-  Calendar,
-  MessageSquare,
-  ChevronRight,
-  Gift,
-  Heart,
-  UserCheck,
-} from 'lucide-react';
+import { Search, Phone, Home, MessageSquare, ChevronRight } from 'lucide-react';
 
 interface MyLeadsViewProps {
   onSelectLead: (lead: Lead) => void;

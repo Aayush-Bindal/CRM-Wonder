@@ -2,18 +2,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Followup, Lead } from '@/lib/types';
+import { Lead } from '@/lib/types';
 import { getTodayDateStr } from '@/lib/utils';
-import {
-  Calendar,
-  Users,
-  CheckCircle2,
-  Clock,
-  Filter,
-  Phone,
-  Home,
-  ChevronRight,
-} from 'lucide-react';
 
 interface TeamFollowupsViewProps {
   onSelectLead: (lead: Lead) => void;

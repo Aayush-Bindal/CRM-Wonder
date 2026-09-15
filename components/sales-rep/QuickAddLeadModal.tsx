@@ -3,19 +3,7 @@
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { getRelativeDateStr } from '@/lib/utils';
-import {
-  X,
-  User,
-  Phone,
-  Home,
-  Calendar,
-  Gift,
-  Heart,
-  FileText,
-  DollarSign,
-  Plus,
-  CheckCircle2,
-} from 'lucide-react';
+import { X, Calendar, Gift, Heart } from 'lucide-react';
 
 interface QuickAddLeadModalProps {
   isOpen: boolean;

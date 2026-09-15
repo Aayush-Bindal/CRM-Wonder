@@ -2,16 +2,12 @@
 
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Lead, LeadStatus } from '@/lib/types';
+import { Lead } from '@/lib/types';
 import {
   Search,
   Download,
-  UserCheck,
   Home,
-  Phone,
-  Calendar,
   Gift,
-  Heart,
   ChevronRight,
   ArrowRightLeft,
   CheckCircle2,

@@ -2,14 +2,12 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Followup, Lead } from '@/lib/types';
+import { Lead } from '@/lib/types';
 import { getTodayDateStr } from '@/lib/utils';
 import {
   Phone,
   MessageSquare,
   CheckCircle2,
-  Calendar,
-  Clock,
   Home,
   Check,
   RotateCcw,
