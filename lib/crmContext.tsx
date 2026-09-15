@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import {
   Profile,
   Lead,
+  LeadStatus,
   Interaction,
   Followup,
   UserRole,
@@ -36,7 +37,7 @@ interface CRMContextType {
   
   // Actions
   loginAs: (profileId: string) => void;
-  loginWithEmail: (email: string) => boolean;
+  login: (identifier: string, password: string) => { success: boolean; error?: string };
   logout: () => void;
   
   // Operations
@@ -65,11 +66,10 @@ interface CRMContextType {
   completeFollowup: (followupId: string, resolutionNotes?: string) => Promise<boolean>;
   rescheduleFollowup: (followupId: string, newDate: string, notes?: string) => Promise<boolean>;
   reassignLead: (leadId: string, newRepId: string) => Promise<boolean>;
-  createRepAccount: (data: { full_name: string; email: string; phone: string; role: UserRole }) => Promise<boolean>;
-  
+  updateLeadStatus: (leadId: string, status: LeadStatus) => Promise<boolean>;
+  createRepAccount: (data: { full_name: string; email: string; phone: string; password: string; role: UserRole }) => Promise<boolean>;
+
   // Edge Function & Automation simulation
-  lastWebhookDispatched: { leadName: string; phone: string; timestamp: string; message: string } | null;
-  clearWebhookNotification: () => void;
   runDailyCronCheck: () => {
     birthdaysFound: Lead[];
     anniversariesFound: Lead[];
@@ -137,13 +137,6 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     }, 0);
     return () => clearTimeout(timer);
   }, []);
-
-  const [lastWebhookDispatched, setLastWebhookDispatched] = useState<{
-    leadName: string;
-    phone: string;
-    timestamp: string;
-    message: string;
-  } | null>(null);
 
   const [isSupabaseConfigured] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -218,14 +211,35 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     [currentUser, profiles]
   );
 
-  const loginWithEmail = useCallback(
-    (email: string) => {
-      const found = profiles.find((p) => p.email.toLowerCase() === email.toLowerCase());
-      if (found) {
-        setCurrentUser(found);
-        return true;
+  // Login with either email or phone number, verified against the account password.
+  const login = useCallback(
+    (identifier: string, password: string): { success: boolean; error?: string } => {
+      const trimmedId = identifier.trim().toLowerCase();
+      const identifierDigits = identifier.replace(/\D/g, '');
+
+      const found = profiles.find((p) => {
+        const emailMatch = p.email.toLowerCase() === trimmedId;
+        const phoneDigits = (p.phone || '').replace(/\D/g, '');
+        const phoneMatch =
+          identifierDigits.length >= 10 &&
+          phoneDigits.length >= 10 &&
+          phoneDigits.slice(-10) === identifierDigits.slice(-10);
+        return emailMatch || phoneMatch;
+      });
+
+      if (!found) {
+        return {
+          success: false,
+          error: 'No account found with this email or phone number. Please check your credentials or contact your administrator.',
+        };
       }
-      return false;
+
+      if (!found.password || found.password !== password) {
+        return { success: false, error: 'Incorrect password. Please try again.' };
+      }
+
+      setCurrentUser(found);
+      return { success: true };
     },
     [profiles]
   );
@@ -298,18 +312,6 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         };
         setFollowups((prev) => [newFup, ...prev]);
       }
-
-      // Trigger Edge Function Database Webhook Simulation: Instant "Thank You" message
-      const repObj = profiles.find((p) => p.id === repId);
-      const repName = repObj?.full_name || 'Property Advisor';
-      const welcomeMsg = `Hello ${newLead.name}, thank you for inquiring about ${newLead.preferred_property}! Your dedicated advisor is ${repName}. We will connect shortly. - Luxury Living`;
-      
-      setLastWebhookDispatched({
-        leadName: newLead.name,
-        phone: newLead.phone_1,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        message: welcomeMsg,
-      });
 
       // Try inserting to real Supabase if connected
       const client = getSupabaseClient();
@@ -448,9 +450,18 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     [isAdmin]
   );
 
+  // Update a lead's pipeline stage (e.g. marking it Closed Won / Closed Lost)
+  const updateLeadStatus = useCallback(async (leadId: string, status: LeadStatus) => {
+    const nowStr = new Date().toISOString();
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, status, updated_at: nowStr } : l))
+    );
+    return true;
+  }, []);
+
   // Admin provisions new Sales Rep
   const createRepAccount = useCallback(
-    async (data: { full_name: string; email: string; phone: string; role: UserRole }) => {
+    async (data: { full_name: string; email: string; phone: string; password: string; role: UserRole }) => {
       if (!isAdmin) return false;
       const nowStr = new Date().toISOString();
       const newProfile: Profile = {
@@ -458,6 +469,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         full_name: data.full_name.trim(),
         email: data.email.trim(),
         phone: data.phone.trim(),
+        password: data.password.trim(),
         role: data.role,
         is_active: true,
         created_at: nowStr,
@@ -469,10 +481,6 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     },
     [isAdmin]
   );
-
-  const clearWebhookNotification = useCallback(() => {
-    setLastWebhookDispatched(null);
-  }, []);
 
   // Run scheduled daily automation simulation
   const runDailyCronCheck = useCallback(() => {
@@ -522,16 +530,15 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         visibleInteractions,
         todayPriorityFollowups,
         loginAs,
-        loginWithEmail,
+        login,
         logout,
         addLead,
         logInteraction,
         completeFollowup,
         rescheduleFollowup,
         reassignLead,
+        updateLeadStatus,
         createRepAccount,
-        lastWebhookDispatched,
-        clearWebhookNotification,
         runDailyCronCheck,
       }}
     >

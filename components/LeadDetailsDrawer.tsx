@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Lead, InteractionType } from '@/lib/types';
+import { Lead, LeadStatus, InteractionType } from '@/lib/types';
 import { useCRM } from '@/lib/crmContext';
 import {
   X,
@@ -17,6 +17,7 @@ import {
   Send,
   UserCheck,
   CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 
 interface LeadDetailsDrawerProps {
@@ -24,8 +25,13 @@ interface LeadDetailsDrawerProps {
   onClose: () => void;
 }
 
+// New and Closed Won/Lost are set implicitly (on creation) or via the direct
+// Mark Success / Mark Failed actions below, so the pipeline dropdown only
+// needs the in-progress working stages.
+const PIPELINE_STAGES: LeadStatus[] = ['Contacted', 'Site Visit', 'Negotiation'];
+
 export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerProps) {
-  const { interactions, followups, logInteraction, profiles, currentUser } = useCRM();
+  const { leads, interactions, followups, logInteraction, updateLeadStatus, profiles, currentUser } = useCRM();
 
   const [noteText, setNoteText] = useState('');
   const [interactionType, setInteractionType] = useState<InteractionType>('Phone Call');
@@ -35,10 +41,17 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
 
   if (!lead) return null;
 
+  // Always read the live lead from context so status changes reflect immediately
+  const activeLead = leads.find((l) => l.id === lead.id) || lead;
+
   // Filter interactions and followups specifically for this lead
-  const leadInteractions = interactions.filter((i) => i.lead_id === lead.id);
-  const leadFollowups = followups.filter((f) => f.lead_id === lead.id);
-  const assignedRep = profiles.find((p) => p.id === lead.assigned_rep_id);
+  const leadInteractions = interactions.filter((i) => i.lead_id === activeLead.id);
+  const leadFollowups = followups.filter((f) => f.lead_id === activeLead.id);
+  const assignedRep = profiles.find((p) => p.id === activeLead.assigned_rep_id);
+
+  const handleStatusChange = async (newStatus: LeadStatus) => {
+    await updateLeadStatus(activeLead.id, newStatus);
+  };
 
   const handleLogInteraction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +59,7 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
 
     setIsSubmitting(true);
     await logInteraction({
-      lead_id: lead.id,
+      lead_id: activeLead.id,
       notes: noteText.trim(),
       interaction_type: interactionType,
       nextFollowupDate: nextFollowupDate || undefined,
@@ -60,7 +73,7 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
     setTimeout(() => setFeedback(null), 3500);
   };
 
-  const cleanPhone1 = lead.phone_1.replace(/[^0-9+]/g, '');
+  const cleanPhone1 = activeLead.phone_1.replace(/[^0-9+]/g, '');
 
   return (
     <div
@@ -76,18 +89,18 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
           <div className="min-w-0 pr-2">
             <div className="flex items-center gap-2 mb-1">
               <span className="px-2 py-0.5 text-[10px] font-mono rounded bg-white text-[#202020] border border-[#d8d8d8]">
-                {lead.status}
+                {activeLead.status}
               </span>
               <span className="text-xs font-mono text-[#828282]">
-                ID: {lead.id.slice(-6)}
+                ID: {activeLead.id.slice(-6)}
               </span>
             </div>
             <h2 className="text-xl font-normal text-[#202020] tracking-tight truncate">
-              {lead.name}
+              {activeLead.name}
             </h2>
             <div className="flex items-center gap-1.5 text-xs text-[#4d4d4d] mt-1 font-mono truncate">
               <Home className="w-3.5 h-3.5 text-[#ff682c] shrink-0" />
-              <span className="font-semibold text-[#202020] truncate">{lead.preferred_property}</span>
+              <span className="font-semibold text-[#202020] truncate">{activeLead.preferred_property}</span>
             </div>
           </div>
 
@@ -115,8 +128,8 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
           <a
             id="lead-whatsapp-btn"
             href={`https://wa.me/${cleanPhone1.replace('+', '')}?text=Hello%20${encodeURIComponent(
-              lead.name
-            )},%20following%20up%20from%20Wonder%20regarding%20${encodeURIComponent(lead.preferred_property)}.`}
+              activeLead.name
+            )},%20following%20up%20from%20Wonder%20regarding%20${encodeURIComponent(activeLead.preferred_property)}.`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-2 py-2.5 px-3 bg-white text-[#202020] border border-[#d8d8d8] text-xs font-medium hover:bg-[#efefef] transition-colors rounded"
@@ -134,24 +147,24 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
               <span className="text-[10px] font-mono uppercase text-[#828282] block">
                 Primary Phone
               </span>
-              <span className="font-mono text-sm text-[#202020]">{lead.phone_1}</span>
+              <span className="font-mono text-sm text-[#202020]">{activeLead.phone_1}</span>
             </div>
 
-            {lead.mobile_2 && (
+            {activeLead.mobile_2 && (
               <div>
                 <span className="text-[10px] font-mono uppercase text-[#828282] block">
                   Secondary Mobile
                 </span>
-                <span className="font-mono text-sm text-[#202020]">{lead.mobile_2}</span>
+                <span className="font-mono text-sm text-[#202020]">{activeLead.mobile_2}</span>
               </div>
             )}
 
-            {lead.budget && (
+            {activeLead.budget && (
               <div>
                 <span className="text-[10px] font-mono uppercase text-[#828282] block">
                   Budget
                 </span>
-                <span className="font-medium text-[#202020]">{lead.budget}</span>
+                <span className="font-medium text-[#202020]">{activeLead.budget}</span>
               </div>
             )}
 
@@ -164,34 +177,89 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
               </span>
             </div>
 
-            {lead.dob && (
+            {activeLead.dob && (
               <div>
                 <span className="text-[10px] font-mono uppercase text-[#828282] flex items-center gap-1">
                   <Gift className="w-3 h-3 text-[#ff682c]" /> Date of Birth (DOB)
                 </span>
-                <span className="font-mono text-[#202020]">{lead.dob}</span>
+                <span className="font-mono text-[#202020]">{activeLead.dob}</span>
               </div>
             )}
 
-            {lead.marriage_anniversary && (
+            {activeLead.marriage_anniversary && (
               <div>
                 <span className="text-[10px] font-mono uppercase text-[#828282] flex items-center gap-1">
                   <Heart className="w-3 h-3 text-[#ff682c]" /> Marriage Anniversary
                 </span>
                 <span className="font-mono text-[#202020]">
-                  {lead.marriage_anniversary}
+                  {activeLead.marriage_anniversary}
                 </span>
               </div>
             )}
 
-            {lead.address && (
+            {activeLead.address && (
               <div className="sm:col-span-2">
                 <span className="text-[10px] font-mono uppercase text-[#828282] flex items-center gap-1">
                   <MapPin className="w-3 h-3 text-[#828282]" /> Residential Address
                 </span>
-                <span className="text-[#202020]">{lead.address}</span>
+                <span className="text-[#202020]">{activeLead.address}</span>
               </div>
             )}
+          </div>
+
+          {/* Pipeline Stage */}
+          <div className="border border-[#e8e8e8] p-4 bg-white rounded">
+            <h3 className="text-xs font-mono uppercase tracking-wider text-[#202020] font-semibold mb-3">
+              Pipeline Stage
+            </h3>
+
+            <select
+              id="lead-status-select"
+              value={activeLead.status}
+              onChange={(e) => handleStatusChange(e.target.value as LeadStatus)}
+              className="w-full text-xs p-2.5 border border-[#e8e8e8] rounded bg-[#ffffff] text-[#202020] font-mono focus:outline-none focus:border-[#202020]"
+            >
+              {!PIPELINE_STAGES.includes(activeLead.status) && (
+                <option value={activeLead.status} disabled>
+                  {activeLead.status}
+                </option>
+              )}
+              {PIPELINE_STAGES.map((stage) => (
+                <option key={stage} value={stage}>
+                  {stage}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Close Lead */}
+          <div className="border border-[#e8e8e8] p-4 bg-white rounded">
+            <h3 className="text-xs font-mono uppercase tracking-wider text-[#202020] font-semibold mb-3">
+              Close Lead
+            </h3>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                id="mark-lead-won-btn"
+                type="button"
+                onClick={() => handleStatusChange('Closed Won')}
+                disabled={activeLead.status === 'Closed Won'}
+                className="py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-medium transition-colors rounded flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Mark Success</span>
+              </button>
+              <button
+                id="mark-lead-lost-btn"
+                type="button"
+                onClick={() => handleStatusChange('Closed Lost')}
+                disabled={activeLead.status === 'Closed Lost'}
+                className="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-medium transition-colors rounded flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Mark Failed</span>
+              </button>
+            </div>
           </div>
 
           {/* Quick Log Interaction Form */}
@@ -319,7 +387,7 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
             </h3>
             {leadFollowups.length === 0 ? (
               <p className="text-xs text-[#828282] font-mono py-2">
-                No follow-ups scheduled for this lead.
+                No follow-ups scheduled for this activeLead.
               </p>
             ) : (
               <div className="space-y-2">

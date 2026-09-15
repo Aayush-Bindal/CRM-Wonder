@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { UserRole } from '@/lib/types';
+import { Profile, UserRole } from '@/lib/types';
+import UserDetailModal from './UserDetailModal';
 import {
   Users,
   UserPlus,
@@ -20,18 +21,21 @@ export default function UserManagementView() {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('Sales_Rep');
   const [showAddForm, setShowAddForm] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim()) return;
+    if (!fullName.trim() || !phone.trim() || !password.trim()) return;
 
     await createRepAccount({
       full_name: fullName.trim(),
       email: email.trim(),
       phone: phone.trim(),
+      password: password.trim(),
       role,
     });
 
@@ -39,6 +43,7 @@ export default function UserManagementView() {
     setFullName('');
     setEmail('');
     setPhone('');
+    setPassword('');
     setShowAddForm(false);
     setTimeout(() => setFeedback(null), 4000);
   };
@@ -92,7 +97,7 @@ export default function UserManagementView() {
             <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
                 <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
-                  Full Name
+                  Full Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   required
@@ -106,12 +111,11 @@ export default function UserManagementView() {
 
               <div>
                 <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
-                  Corporate Email
+                  Email <span className="text-[#828282] normal-case">(optional)</span>
                 </label>
                 <input
-                  required
                   type="email"
-                  placeholder="rachel.a@luxuryliving.com"
+                  placeholder="rachel.a@gmail.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full text-xs p-2 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
@@ -120,14 +124,28 @@ export default function UserManagementView() {
 
               <div>
                 <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
-                  Phone (WhatsApp / SMS)
+                  Phone (WhatsApp / SMS) <span className="text-red-500">*</span>
                 </label>
                 <input
                   required
                   type="tel"
-                  placeholder="+1 (555) 000-1122"
+                  placeholder="98765 43210"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                  className="w-full text-xs p-2 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
+                  Set Initial Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  type="password"
+                  placeholder="e.g. Welcome@123"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   className="w-full text-xs p-2 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                 />
               </div>
@@ -175,7 +193,11 @@ export default function UserManagementView() {
           return (
             <div
               key={profile.id}
-              className="bg-white border border-[#e8e8e8] hover:border-[#d4d4d4] rounded-lg p-5 flex flex-col justify-between"
+              id={`user-card-${profile.id}`}
+              onClick={() => setSelectedProfile(profile)}
+              role="button"
+              tabIndex={0}
+              className="bg-white border border-[#e8e8e8] hover:border-[#d4d4d4] hover:shadow-md rounded-lg p-5 flex flex-col justify-between cursor-pointer transition-all"
             >
               <div>
                 <div className="flex items-start justify-between mb-2">
@@ -230,6 +252,13 @@ export default function UserManagementView() {
           );
         })}
       </div>
+
+      {selectedProfile && (
+        <UserDetailModal
+          profile={selectedProfile}
+          onClose={() => setSelectedProfile(null)}
+        />
+      )}
     </div>
   );
 }

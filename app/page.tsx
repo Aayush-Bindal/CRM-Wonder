@@ -23,7 +23,6 @@ import {
   Users,
   Database,
   ShieldCheck,
-  Zap,
   X,
   Plus,
   Menu,
@@ -32,7 +31,7 @@ import {
 const emptySubscribe = () => () => {};
 
 function CRMApp() {
-  const { currentUser, todayPriorityFollowups, visibleLeads, lastWebhookDispatched, clearWebhookNotification } = useCRM();
+  const { currentUser, todayPriorityFollowups, visibleLeads } = useCRM();
 
   const isMounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const [activeTab, setActiveTab] = useState<string>('priority');
@@ -270,33 +269,6 @@ function CRMApp() {
           {isAdmin && currentTab === 'users' && <UserManagementView />}
         </div>
       </main>
-
-      {/* Floating Webhook Trigger Notification Toast */}
-      {lastWebhookDispatched && (
-        <aside
-          aria-label="Webhook Notification"
-          className="fixed bottom-4 right-4 z-50 max-w-sm bg-[#202020] text-white p-4 rounded-lg shadow-2xl border border-[#444] animate-in slide-in-from-bottom-3"
-        >
-          <div className="flex items-start justify-between gap-2 mb-1.5">
-            <div className="flex items-center gap-1.5 text-xs font-mono text-[#ff682c]">
-              <Zap className="w-3.5 h-3.5" />
-              <span>Edge Function Webhook Dispatched</span>
-            </div>
-            <button
-              onClick={clearWebhookNotification}
-              className="text-neutral-400 hover:text-white"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <p className="text-xs text-neutral-300 mb-1">
-            Instant &quot;Thank You&quot; message sent to <span className="font-semibold text-white">{lastWebhookDispatched.leadName}</span> ({lastWebhookDispatched.phone}).
-          </p>
-          <div className="text-[11px] font-mono text-neutral-400 bg-neutral-900 p-2 rounded truncate">
-            {lastWebhookDispatched.message}
-          </div>
-        </aside>
-      )}
 
       {/* Slideover & Modals */}
       <LeadDetailsDrawer

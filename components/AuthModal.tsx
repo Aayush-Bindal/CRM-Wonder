@@ -2,11 +2,11 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Lock, Mail, ArrowRight, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react';
+import { Lock, User, ArrowRight, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react';
 
 export default function AuthModal() {
-  const { loginWithEmail, loginAs, profiles } = useCRM();
-  const [email, setEmail] = useState('');
+  const { login, loginAs, profiles } = useCRM();
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,9 +17,9 @@ export default function AuthModal() {
     setLoading(true);
 
     setTimeout(() => {
-      const success = loginWithEmail(email);
-      if (!success) {
-        setError('No account found with this email. Please check your credentials or contact your administrator.');
+      const result = login(identifier, password);
+      if (!result.success) {
+        setError(result.error || 'Unable to sign in. Please check your credentials.');
       }
       setLoading(false);
     }, 300);
@@ -62,20 +62,20 @@ export default function AuthModal() {
 
             <div>
               <label
-                htmlFor="login-email"
+                htmlFor="login-identifier"
                 className="block text-xs font-mono uppercase tracking-wider text-[#4d4d4d] mb-1"
               >
-                Corporate Email
+                Email or Phone Number
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-[#828282] absolute left-3 top-3" />
+                <User className="w-4 h-4 text-[#828282] absolute left-3 top-3" />
                 <input
-                  id="login-email"
-                  type="email"
+                  id="login-identifier"
+                  type="text"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@luxuryliving.com"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder="name@gmail.com or 98765 43210"
                   className="w-full bg-[#ffffff] border border-[#e8e8e8] pl-9 pr-3 py-2.5 text-sm text-[#202020] focus:outline-none focus:border-[#202020]"
                 />
               </div>

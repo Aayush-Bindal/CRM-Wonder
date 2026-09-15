@@ -119,7 +119,7 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
                 id="quick-add-phone-1"
                 required
                 type="tel"
-                placeholder="+1 (555) 000-0000"
+                placeholder="+91 98765 43210"
                 value={phone1}
                 onChange={(e) => setPhone1(e.target.value)}
                 className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
@@ -162,7 +162,7 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
               <input
                 id="quick-add-budget"
                 type="text"
-                placeholder="e.g. $1,200,000 - $1,500,000"
+                placeholder="e.g. ₹85 L - ₹1.2 Cr"
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
                 className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
@@ -255,24 +255,17 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-              <div>
-                <label className="block text-[11px] font-mono uppercase text-[#4d4d4d] mb-1 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-[#ff682c]" /> Schedule Next Follow-up Date
-                </label>
-                <input
-                  id="quick-add-followup-date"
-                  type="date"
-                  value={nextFollowupDate}
-                  onChange={(e) => setNextFollowupDate(e.target.value)}
-                  className="w-full text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
-                />
-              </div>
-
-              <div className="text-[11px] text-[#828282] pt-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#ff682c]" />
-                <span>Automatic trigger fires immediate &quot;Thank You&quot; message to Phone 1.</span>
-              </div>
+            <div>
+              <label className="block text-[11px] font-mono uppercase text-[#4d4d4d] mb-1 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-[#ff682c]" /> Schedule Next Follow-up Date
+              </label>
+              <input
+                id="quick-add-followup-date"
+                type="date"
+                value={nextFollowupDate}
+                onChange={(e) => setNextFollowupDate(e.target.value)}
+                className="w-full sm:w-1/2 text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
+              />
             </div>
           </div>
 
