@@ -102,10 +102,31 @@ functional and still hardened.
 
 ## 4. Creating the Admin account
 
-The role has to arrive in `app_metadata`, which the dashboard's *Add user* form
-cannot set — it writes `user_metadata`. Two ways, pick either:
+Signing in never creates an account — `signInWithPassword` only authenticates an
+existing login, and the app has no sign-up screen, because reps do not register
+themselves. The first account (and only the first) has to be created from outside the
+app.
 
-**A. Promote after creating (simplest — no scripting)**
+**A. One command (recommended)**
+
+```bash
+bun run create-admin
+```
+
+It prompts for email, full name and password (never echoed, so it stays out of your
+shell history), then prints the provisioned profile. Non-interactive:
+
+```bash
+bun run create-admin -- --email owner@example.com --name "Owner Name"
+# or, for a Sales Rep rather than an Admin:
+bun run create-admin -- --email rep@example.com --name "A Rep" --role Sales_Rep
+```
+
+It reads the credentials from `.env`, uses the service role key, and passes the role
+in `app_metadata` — the same call the app's User Management screen makes. If the login
+already exists, it prints the SQL to repair it instead.
+
+**B. Dashboard + one statement**
 
 1. Authentication → Users → *Add user*: email, password, **Auto Confirm User** ON.
 2. Promote them in the SQL Editor:
@@ -114,7 +135,7 @@ cannot set — it writes `user_metadata`. Two ways, pick either:
 UPDATE public.profiles SET role = 'Admin' WHERE email = 'owner@example.com';
 ```
 
-**B. Create with the Admin API**
+**C. Admin API**
 
 ```js
 await supabase.auth.admin.createUser({
@@ -126,9 +147,61 @@ await supabase.auth.admin.createUser({
 });
 ```
 
-Both work because `auth.uid()` is NULL in those contexts, which is exactly what the
-guard trigger allows through. Every later account is created from the app's
-**User Management** screen with role and password, and needs neither step.
+All three work because `auth.uid()` is NULL in those contexts, which is exactly what
+the guard trigger allows through. Every later account is created from the app's
+**User Management** screen with role and password, and needs none of this.
+
+> Do not enable Email signups as a workaround. It is off deliberately: anyone who
+> reached the app could then create accounts in your tenant. The role can no longer
+> be forged through it, but the door would still be open.
+
+### Order matters, and how to tell if it went wrong
+
+The `public.profiles` row is not created by you — the `on_auth_user_created` trigger
+on `auth.users` creates it the moment the auth user is inserted. So **apply the
+migration before creating the first account**. If you create an account first, the
+trigger does not exist yet and the login is left with no profile.
+
+Run this first — it shows every login and whether it has a profile:
+
+```sql
+SELECT u.email,
+       u.created_at::date AS login_created,
+       p.id IS NOT NULL   AS has_profile,
+       p.role,
+       p.is_active
+FROM auth.users u
+LEFT JOIN public.profiles p ON p.id = u.id
+ORDER BY u.created_at DESC;
+```
+
+`has_profile = false` is the orphan case. Rows where `has_profile = true` and
+`is_active = true` are usable accounts.
+
+**Symptom of a missing profile:** the app signs you straight back out with *"This
+login has no CRM profile yet, so it cannot be used."* It signs out any session whose
+profile row is missing or whose `is_active` is false, because every RLS policy
+requires an active profile — so that message means "no usable profile", not a
+deactivated account. (A deactivated account gets its own message.)
+
+Fix by creating the missing row:
+
+```sql
+INSERT INTO public.profiles (id, full_name, email, role)
+SELECT id, COALESCE(raw_user_meta_data->>'full_name', 'Owner'), email, 'Admin'
+FROM auth.users
+WHERE email = 'owner@example.com'
+ON CONFLICT (id) DO NOTHING;
+
+SELECT id, email, role, is_active FROM public.profiles;   -- confirm it landed
+```
+
+Or delete that login in Authentication → Users and create it again now that the
+trigger exists — either way it ends up provisioned.
+
+Because the browser keeps its session in `localStorage` (`sb-<project-ref>-auth-token`),
+an orphaned login re-triggers this on every page load until the session is revoked,
+which the app does for you on the first load.
 
 **One Admin is enough to run the business.** They provision every rep from User
 Management, reset forgotten passwords, and reassign leads. Two things to know:
@@ -138,8 +211,8 @@ Management, reset forgotten passwords, and reassign leads. Two things to know:
 - The gap is **password recovery**. The app has no "forgot password" email flow, and
   an Admin can only reset *other* people's passwords — so an Admin who forgets theirs
   is recovered through the Supabase dashboard (Authentication → Users → reset), or by
-  running migration step A again after creating a replacement. There is no in-app
-  path, so keep dashboard access to the project.
+  running step A again after creating a replacement. There is no in-app path, so keep
+  dashboard access to the project.
 
 A second Admin (an operations manager, or a break-glass account you keep) removes
 that dependency. Not required, but it is the difference between "a five-minute

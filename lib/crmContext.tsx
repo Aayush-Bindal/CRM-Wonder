@@ -134,14 +134,23 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
 
     const profile = (profileRes.data as Profile) || null;
 
-    // The account was deleted or deactivated between sign-in and this load.
-    // Revoke the session: every RLS policy now requires an active profile, so
-    // the app would otherwise render as an empty, unusable shell.
-    if (!profile || !profile.is_active) {
+    // Both cases below revoke the session: every RLS policy requires an active
+    // profile row, so the app would otherwise render as an unusable shell. They
+    // are reported separately because they need different fixes — a missing row
+    // means the login was never provisioned (or was created before the schema
+    // existed), while an inactive row means it was deliberately turned off.
+    if (!profile) {
       activeUserIdRef.current = null;
       setAuthNotice(
-        'This account is inactive. Contact your administrator.'
+        'This login has no CRM profile yet, so it cannot be used. An administrator must provision it.'
       );
+      await client.auth.signOut();
+      return;
+    }
+
+    if (!profile.is_active) {
+      activeUserIdRef.current = null;
+      setAuthNotice('This account is inactive. Contact your administrator.');
       await client.auth.signOut();
       return;
     }

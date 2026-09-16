@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test:rls": "bun supabase/tests/rls-invariants.test.mjs",
+    "create-admin": "bun scripts/create-admin.mjs",
     "clean": "next clean"
   },
   "dependencies": {

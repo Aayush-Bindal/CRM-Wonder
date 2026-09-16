@@ -362,6 +362,65 @@ record('removing an Admin is allowed while another remains', delSecond.ok && adm
 const delRep = await asOwner(db, `DELETE FROM auth.users WHERE id='77777777-7777-7777-7777-777777777777'`);
 record('deleting a non-Admin is never blocked', delRep.ok, delRep.error?.slice(0, 60));
 
+// Deleting a team member: the app calls auth.admin.deleteUser(), which removes
+// the auth.users row; public.profiles follows through ON DELETE CASCADE. The app
+// never deletes a profile row directly, so these two assertions pin the direction
+// of that cascade and the fact that it cannot half-apply.
+const CASCADE_ID = 'dddddddd-0000-0000-0000-00000000000a';
+await asService(db, `INSERT INTO public.leads (name, phone_1, preferred_property, assigned_rep_id) VALUES ('Owned', '+919000000094', 'Flat', '${REP_A}')`);
+// auth.users is GoTrue's schema: it is not reachable through PostgREST, so the
+// harness grants it only to the owner. Reads of it (and any insert into it) use
+// the owner connection — the analogue of GoTrue's own privileged connection.
+const cascadeFixture = await asOwner(db, `SELECT
+  (SELECT count(*)::int FROM auth.users WHERE id='${REP_A}') AS logins,
+  (SELECT count(*)::int FROM public.profiles WHERE id='${REP_A}') AS profiles`);
+record(
+  'SETUP: rep A has a login, a profile and at least one lead',
+  cascadeFixture.rows?.[0]?.logins === 1 && cascadeFixture.rows?.[0]?.profiles === 1,
+  JSON.stringify(cascadeFixture.rows?.[0])
+);
+
+// A member who still owns leads must not be deletable — and the refusal must take
+// the whole statement with it, leaving the login intact (no orphaned auth row).
+const blocked = await asOwner(db, `DELETE FROM auth.users WHERE id='${REP_A}'`);
+const afterBlocked = await asOwner(db, `SELECT
+  (SELECT count(*)::int FROM auth.users WHERE id='${REP_A}') AS logins,
+  (SELECT count(*)::int FROM public.profiles WHERE id='${REP_A}') AS profiles`);
+record(
+  'deleting a member who still owns leads is refused atomically (login survives too)',
+  !blocked.ok &&
+    afterBlocked.rows?.[0]?.logins === 1 &&
+    afterBlocked.rows?.[0]?.profiles === 1,
+  blocked.ok ? 'DELETE SUCCEEDED' : `refused: ${blocked.error?.slice(0, 60)} / logins=${afterBlocked.rows?.[0]?.logins} profiles=${afterBlocked.rows?.[0]?.profiles}`
+);
+
+// Once their work is reassigned, the login goes and the profile goes with it.
+const ghost = await asOwner(db, `INSERT INTO auth.users (id, email) VALUES ('${CASCADE_ID}', 'cascade@wonder.test')`);
+const ghostProfile = await asService(db, `SELECT count(*)::int AS n FROM public.profiles WHERE id='${CASCADE_ID}'`);
+record(
+  'SETUP: inserting a login creates its profile via the trigger',
+  ghost.ok && ghostProfile.rows?.[0]?.n === 1,
+  `insert=${ghost.ok ? 'ok' : ghost.error?.slice(0, 40)} profile rows=${ghostProfile.rows?.[0]?.n}`
+);
+const removed = await asOwner(db, `DELETE FROM auth.users WHERE id='${CASCADE_ID}'`);
+const ghostAfter = await asOwner(db, `SELECT
+  (SELECT count(*)::int FROM auth.users WHERE id='${CASCADE_ID}') AS logins,
+  (SELECT count(*)::int FROM public.profiles WHERE id='${CASCADE_ID}') AS profiles`);
+record(
+  'deleting the login removes its profile row too (no orphan)',
+  removed.ok && ghostAfter.rows?.[0]?.logins === 0 && ghostAfter.rows?.[0]?.profiles === 0,
+  JSON.stringify(ghostAfter.rows?.[0])
+);
+
+// A deleted account whose access token is still unexpired is inert: the token
+// still authenticates to PostgREST, but every policy requires an active profile.
+const orphanToken = await asUser(db, CASCADE_ID, `SELECT count(*)::int AS n FROM public.leads`);
+record(
+  'a still-valid token for a deleted account can read nothing',
+  orphanToken.ok && orphanToken.rows?.[0]?.n === 0,
+  `n=${orphanToken.rows?.[0]?.n}`
+);
+
 console.log('\n=== Phase 9: lead deletion ===');
 // Fresh fixtures: a lead for rep A carrying an interaction and a follow-up, and
 // a lead for rep B that must stay unreachable.

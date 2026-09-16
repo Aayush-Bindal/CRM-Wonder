@@ -36,22 +36,15 @@ Mobile-first real estate sales CRM for property brokerages. Tracks leads through
 
 4. In the Supabase dashboard, go to Authentication -> Providers -> Email and make sure the Email provider is enabled. **Signups must stay disabled**: accounts are provisioned by an Admin from within the app. The schema no longer trusts signup metadata for the role, but leaving signups on still lets uninvited accounts in.
 
-5. Create the first Admin account. The role must arrive in `app_metadata` — the only metadata a user cannot write:
+5. Create the first Admin account. Signing in never creates an account — the app has no sign-up screen, by design — so this one is created from outside it:
 
-   ```js
-   await supabase.auth.admin.createUser({
-     email: 'admin@yourcompany.com',
-     password: '<at least 8 characters>',
-     email_confirm: true,
-     app_metadata: { role: 'Admin' },              // <- role lives here
-     user_metadata: { full_name: 'Owner Name' },
-   });
+   ```bash
+   bun run create-admin
    ```
 
-   Or create the user from the dashboard and promote them with one statement:
-   `UPDATE public.profiles SET role = 'Admin' WHERE email = 'admin@yourcompany.com';`
+   It prompts for email, full name and password, and reads the credentials from `.env`. The role is passed in `app_metadata`, the only metadata a user cannot write themselves. A database trigger creates the matching profile row. Every subsequent account is created from the app's User Management screen once signed in as an Admin.
 
-   A database trigger creates the matching profile row. Every subsequent account is created from the app's User Management screen once signed in as an Admin.
+   Without the script: create the user in Supabase → Authentication → Users (*Auto Confirm User* ON), then run `UPDATE public.profiles SET role = 'Admin' WHERE email = 'admin@yourcompany.com';`. See `supabase/README.md` §4 for that path and for repairing a login that has no profile.
 
 6. Run the app:
 
