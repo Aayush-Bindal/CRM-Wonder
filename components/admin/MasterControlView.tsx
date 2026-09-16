@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
+import { getTodayDateStr } from '@/lib/utils';
 import { Activity, Home } from 'lucide-react';
 
 interface MasterControlViewProps {
@@ -21,13 +22,19 @@ export default function MasterControlView({
   const activeVisits = leads.filter((l) => l.status === 'Site Visit' || l.status === 'Negotiation').length;
   const closedDeals = leads.filter((l) => l.status === 'Closed Won').length;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Local calendar day: toISOString() would still report yesterday's date for
+  // the first hours of the local day in UTC+ timezones.
+  const todayStr = getTodayDateStr();
   const todayFollowups = followups.filter((f) => f.followup_date === todayStr);
   const pendingToday = todayFollowups.filter((f) => f.status === 'Pending').length;
 
-  // Real-time feed of all interactions sorted newest first
-  const sortedInteractions = [...interactions].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  // Newest first. Sorted once per data change rather than on every render.
+  const sortedInteractions = useMemo(
+    () =>
+      [...interactions].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ),
+    [interactions]
   );
 
   return (

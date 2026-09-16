@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
+import { escapeCsvField, getTodayDateStr } from '@/lib/utils';
 import {
   Search,
   Download,
@@ -29,6 +30,7 @@ export default function FullLeadDatabaseView({
   const [reassigningLead, setReassigningLead] = useState<Lead | null>(null);
   const [targetRepId, setTargetRepId] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [reassignError, setReassignError] = useState<string | null>(null);
 
   const reps = profiles.filter((p) => p.role === 'Sales_Rep');
 
@@ -54,7 +56,11 @@ export default function FullLeadDatabaseView({
     });
   }, [leads, selectedRepFilter, selectedStatusFilter, searchQuery]);
 
-  // Export to CSV
+  // Export to CSV.
+  // Two hazards handled here: a cell beginning with =, +, -, @, tab or CR is
+  // evaluated as a formula by spreadsheet clients (quoting does not stop that),
+  // and a data: URI cannot carry an unbounded document. Every value is escaped
+  // through escapeCsvField and the file is built as a Blob.
   const handleExportCSV = () => {
     const headers = [
       'Lead ID',
@@ -75,40 +81,53 @@ export default function FullLeadDatabaseView({
       const rep = profiles.find((p) => p.id === lead.assigned_rep_id);
       return [
         lead.id,
-        `"${lead.name.replace(/"/g, '""')}"`,
-        `"${lead.phone_1}"`,
-        `"${lead.mobile_2 || ''}"`,
-        `"${lead.preferred_property.replace(/"/g, '""')}"`,
-        `"${lead.budget || ''}"`,
+        lead.name,
+        lead.phone_1,
+        lead.mobile_2 || '',
+        lead.preferred_property,
+        lead.budget || '',
         lead.status,
-        `"${rep?.full_name || 'Unassigned'}"`,
+        rep?.full_name || 'Unassigned',
         lead.dob || '',
         lead.marriage_anniversary || '',
-        `"${(lead.address || '').replace(/"/g, '""')}"`,
+        lead.address || '',
         lead.created_at,
-      ].join(',');
+      ]
+        .map(escapeCsvField)
+        .join(',');
     });
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    // CRLF is the CSV line terminator; the leading BOM keeps Excel from
+    // mangling non-ASCII lead names.
+    const csvContent = `\uFEFF${[headers.map(escapeCsvField).join(','), ...rows].join('\r\n')}`;
+    const url = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', url);
     link.setAttribute(
       'download',
-      `real_estate_leads_export_${new Date().toISOString().split('T')[0]}.csv`
+      `real_estate_leads_export_${getTodayDateStr()}.csv`
     );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Reassignment Submission
   const handleConfirmReassign = async () => {
     if (!reassigningLead || !targetRepId) return;
-    await reassignLead(reassigningLead.id, targetRepId);
+    setFeedback(null);
+    const result = await reassignLead(reassigningLead.id, targetRepId);
+
+    if (!result.success) {
+      setReassignError(result.error || 'Failed to reassign this lead.');
+      return;
+    }
+
     const newRep = profiles.find((p) => p.id === targetRepId);
     setFeedback(`Lead ${reassigningLead.name} successfully reassigned to ${newRep?.full_name}!`);
     setReassigningLead(null);
+    setReassignError(null);
     setTargetRepId('');
     setTimeout(() => setFeedback(null), 4000);
   };
@@ -266,6 +285,7 @@ export default function FullLeadDatabaseView({
                         id={`reassign-lead-${lead.id}`}
                         onClick={() => {
                           setReassigningLead(lead);
+                          setReassignError(null);
                           setTargetRepId(lead.assigned_rep_id);
                         }}
                         className="px-2.5 py-1 bg-[#efefef] hover:bg-[#e4e4e4] text-[#202020] font-mono text-[11px] rounded transition-colors inline-flex items-center gap-1"
@@ -321,6 +341,12 @@ export default function FullLeadDatabaseView({
               <p className="text-[11px] text-[#828282] bg-[#f5f5f5] p-2.5 rounded border border-[#e8e8e8]">
                 Note: Reassigning will automatically transfer all pending follow-up schedules for this lead to the newly assigned representative.
               </p>
+
+              {reassignError && (
+                <p className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded border border-red-200">
+                  {reassignError}
+                </p>
+              )}
             </div>
 
             <div className="mt-5 pt-4 border-t border-[#e8e8e8] flex items-center justify-end gap-2">

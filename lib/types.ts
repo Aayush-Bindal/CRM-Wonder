@@ -80,3 +80,18 @@ export interface AppState {
   followups: Followup[];
   isSupabaseConfigured: boolean;
 }
+
+// The fields a lead's owner may correct after capture. Deliberately excludes
+// assigned_rep_id (that is the admin reassignment flow) and status (the pipeline
+// controls), and mirrors the column grants in the migrations.
+export type LeadEditableFields = Pick<
+  Lead,
+  | 'name'
+  | 'phone_1'
+  | 'mobile_2'
+  | 'address'
+  | 'dob'
+  | 'marriage_anniversary'
+  | 'preferred_property'
+  | 'budget'
+>;

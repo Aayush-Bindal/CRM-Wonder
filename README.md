@@ -30,13 +30,28 @@ Mobile-first real estate sales CRM for property brokerages. Tracks leads through
    SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
    ```
 
-   The service role key is used only in server-side API routes (`app/api/admin/*`) and is never exposed to the client.
+   The service role key is used only in server-side API routes (`app/api/admin/*`) and is never exposed to the client. Never prefix it with `NEXT_PUBLIC_`.
 
-3. Apply the database schema. In the Supabase dashboard, open the SQL Editor, paste the contents of `supabase/migrations/20260915_initial_schema_and_rls.sql`, and run it. This creates the `profiles`, `leads`, `interactions`, and `followups` tables along with their Row Level Security policies. See `supabase/README.md` for details.
+3. Apply the database schema. In the Supabase dashboard, open the SQL Editor, paste the contents of `supabase/migrations/20260915_initial_schema_and_rls.sql`, and run it. That single file creates the `profiles`, `leads`, `interactions`, and `followups` tables with their Row Level Security policies, guard triggers and access grants. See `supabase/README.md` for the security model and the handover checklist.
 
-4. In the Supabase dashboard, go to Authentication -> Providers -> Email and make sure the Email provider is enabled. Signups should stay disabled, since accounts are provisioned by an Admin from within the app, not through self-registration.
+4. In the Supabase dashboard, go to Authentication -> Providers -> Email and make sure the Email provider is enabled. **Signups must stay disabled**: accounts are provisioned by an Admin from within the app. The schema no longer trusts signup metadata for the role, but leaving signups on still lets uninvited accounts in.
 
-5. Create the first Admin account using the Supabase Auth Admin API (`auth.admin.createUser`) with `user_metadata` containing `full_name` and `role: "Admin"`. A database trigger automatically creates the matching profile row. Every subsequent account can be created from the app's User Management screen once signed in as an Admin.
+5. Create the first Admin account. The role must arrive in `app_metadata` — the only metadata a user cannot write:
+
+   ```js
+   await supabase.auth.admin.createUser({
+     email: 'admin@yourcompany.com',
+     password: '<at least 8 characters>',
+     email_confirm: true,
+     app_metadata: { role: 'Admin' },              // <- role lives here
+     user_metadata: { full_name: 'Owner Name' },
+   });
+   ```
+
+   Or create the user from the dashboard and promote them with one statement:
+   `UPDATE public.profiles SET role = 'Admin' WHERE email = 'admin@yourcompany.com';`
+
+   A database trigger creates the matching profile row. Every subsequent account is created from the app's User Management screen once signed in as an Admin.
 
 6. Run the app:
 
@@ -50,18 +65,46 @@ Mobile-first real estate sales CRM for property brokerages. Tracks leads through
 - `npm run build` - build for production
 - `npm run start` - run the production build
 - `npm run lint` - run ESLint
+- `npm run test:rls` - run the Row Level Security regression tests against a real Postgres engine (PGlite), covering privilege escalation, account deactivation, role provisioning and the last-Admin guard
 - `npm run clean` - remove the `.next` build output
 
 ## Roles
 
-- **Admin**: full visibility across all leads, interactions, and follow-ups; manages the team (create accounts, reset passwords, reassign leads); views team-wide reporting.
-- **Sales Representative**: sees only leads assigned to them, logs interactions, and manages their own follow-up schedule. Enforced by Postgres Row Level Security, not just the UI.
+- **Admin**: full visibility across all leads, interactions, and follow-ups; manages the team (create accounts, reset passwords, reassign leads); edits and deletes any lead; views team-wide reporting. Resetting a password or deleting an account requires re-entering the Admin's own password, which the server verifies.
+- **Sales Representative**: sees only leads assigned to them, logs interactions, manages their own follow-up schedule, and can correct or delete a lead they captured by mistake. Enforced by Postgres Row Level Security, not just the UI.
+
+A lead captured wrongly can be corrected or removed from the drawer opened on any
+lead: **Edit** changes the client's own details (name, phones, property, budget,
+address, personal dates), and **Delete Lead** removes the record together with its
+interactions and follow-ups (`ON DELETE CASCADE`). Both are offered to the lead's
+owner and to Admins. Reassignment and pipeline status stay on their own controls —
+editing never touches who owns a lead or where it sits in the pipeline.
+
+Accounts are revoked by clearing `profiles.is_active`. Every RLS policy requires an
+active profile, and `requireAdmin` checks the same flag, so deactivation stops
+PostgREST access immediately; ban the GoTrue user as well
+(`auth.admin.updateUserById(id, { ban_duration: '876000h' })`) to stop the account
+from refreshing its session.
+
+## Security model
+
+- Authorization is enforced in the database. `role` and `is_active` cannot be
+  changed by their owner: column-scoped grants restrict self-service profile
+  edits to `full_name` and `phone`, and a guard trigger rejects changes to
+  `role`, `is_active`, `email`, `id` or `created_at` from anyone but an Admin.
+- The role is provisioned from `app_metadata` (server-writable only), never from
+  `user_metadata` (attacker-controlled at signup).
+- The last remaining Admin cannot be deleted — enforced by a trigger, not by an
+  application-side count.
+- Multi-step writes that must not half-apply (lead reassignment) go through a
+  database function so they are atomic.
+- `npm run test:rls` exercises all of the above against a real Postgres engine.
 
 ## Project Structure
 
 ```
 app/                    Next.js App Router pages and API routes
-  api/admin/            Admin-only server routes (create user, reset password)
+  api/admin/            Admin-only server routes (create user, reset password, delete user)
 components/
   admin/                Admin dashboard views
   sales-rep/            Sales rep dashboard views
@@ -70,5 +113,6 @@ lib/
   supabase/             Supabase client (browser) and admin client (server)
   types.ts              Shared TypeScript types
 supabase/
-  migrations/           Database schema and RLS policies
+  migrations/           Database schema, RLS policies and security hardening
+  tests/                RLS regression tests (bun run test:rls)
 ```

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   Profile,
   Lead,
@@ -9,6 +9,7 @@ import {
   Followup,
   UserRole,
   InteractionType,
+  LeadEditableFields,
 } from './types';
 import { getTodayDateStr } from './utils';
 import { getSupabaseClient, getSupabaseConfig } from './supabase/client';
@@ -23,11 +24,16 @@ interface CRMContextType {
   isLoading: boolean;
   activeRole: UserRole | null;
 
-  // RLS already scopes these server-side, kept as aliases for consumers
+  // Scoped to the signed-in user: RLS already filters server-side, but the UI
+  // must not depend on the database being the only thing standing between a rep
+  // and another rep's customer records.
   visibleLeads: Lead[];
   visibleFollowups: Followup[];
   visibleInteractions: Interaction[];
   todayPriorityFollowups: Followup[];
+
+  // Set when a session was refused or revoked (e.g. a deactivated account).
+  authNotice: string | null;
 
   // Auth
   login: (identifier: string, password: string) => Promise<{ success: boolean; error?: string }>;
@@ -58,8 +64,13 @@ interface CRMContextType {
 
   completeFollowup: (followupId: string, resolutionNotes?: string) => Promise<boolean>;
   rescheduleFollowup: (followupId: string, newDate: string, notes?: string) => Promise<boolean>;
-  reassignLead: (leadId: string, newRepId: string) => Promise<boolean>;
+  reassignLead: (leadId: string, newRepId: string) => Promise<{ success: boolean; error?: string }>;
   updateLeadStatus: (leadId: string, status: LeadStatus) => Promise<boolean>;
+  // Correct a lead captured by mistake. Permitted for the lead's owner and for
+  // Admins; enforced by the column grants and RLS, not by the UI.
+  updateLead: (leadId: string, patch: LeadEditableFields) => Promise<{ success: boolean; error?: string }>;
+  // Removes the lead and, by cascade, its interactions and follow-ups.
+  deleteLead: (leadId: string) => Promise<{ success: boolean; error?: string }>;
   createRepAccount: (data: {
     full_name: string;
     email: string;
@@ -67,8 +78,12 @@ interface CRMContextType {
     password: string;
     role: UserRole;
   }) => Promise<{ success: boolean; error?: string }>;
-  resetUserPassword: (userId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
-  deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>;
+  resetUserPassword: (
+    userId: string,
+    newPassword: string,
+    adminPassword: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  deleteUser: (userId: string, adminPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -79,12 +94,27 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [followups, setFollowups] = useState<Followup[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const [isSupabaseConfigured] = useState<boolean>(() => {
     const config = getSupabaseConfig();
     return Boolean(config.url && config.key);
   });
+  // Derived before the first paint so the effect below never has to set it
+  // synchronously; with no client configured there is nothing to wait for.
+  const [isLoading, setIsLoading] = useState<boolean>(isSupabaseConfigured);
+
+  // Identity the in-flight load belongs to. Every write is gated on this so a
+  // slow response from a previous user can never overwrite the current session.
+  const activeUserIdRef = useRef<string | null>(null);
+
+  const clearData = useCallback(() => {
+    setCurrentUser(null);
+    setProfiles([]);
+    setLeads([]);
+    setInteractions([]);
+    setFollowups([]);
+  }, []);
 
   const loadData = useCallback(async (userId: string) => {
     const client = getSupabaseClient();
@@ -98,37 +128,51 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       client.from('followups').select('*').order('followup_date', { ascending: true }),
     ]);
 
-    setCurrentUser((profileRes.data as Profile) || null);
+    // A newer auth event superseded this load (sign-out, or a different user):
+    // drop the result instead of writing another identity's rows into state.
+    if (activeUserIdRef.current !== userId) return;
+
+    const profile = (profileRes.data as Profile) || null;
+
+    // The account was deleted or deactivated between sign-in and this load.
+    // Revoke the session: every RLS policy now requires an active profile, so
+    // the app would otherwise render as an empty, unusable shell.
+    if (!profile || !profile.is_active) {
+      activeUserIdRef.current = null;
+      setAuthNotice(
+        'This account is inactive. Contact your administrator.'
+      );
+      await client.auth.signOut();
+      return;
+    }
+
+    setCurrentUser(profile);
     setProfiles((profilesRes.data as Profile[]) || []);
     setLeads((leadsRes.data as Lead[]) || []);
     setInteractions((interactionsRes.data as Interaction[]) || []);
     setFollowups((followupsRes.data as Followup[]) || []);
   }, []);
 
-  const clearData = useCallback(() => {
-    setCurrentUser(null);
-    setProfiles([]);
-    setLeads([]);
-    setInteractions([]);
-    setFollowups([]);
-  }, []);
-
   // Track the signed-in session and (re)load data whenever it changes
   useEffect(() => {
     const client = getSupabaseClient();
-    if (!client) {
-      setIsLoading(false);
-      return;
-    }
+    if (!client) return;
 
     let didInit = false;
 
-    const { data: listener } = client.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        await loadData(session.user.id);
+    const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
+      const userId = session?.user?.id ?? null;
+      activeUserIdRef.current = userId;
+
+      if (userId) {
+        void loadData(userId).catch(() => {
+          // Never leave the splash screen up because a load failed.
+          if (activeUserIdRef.current === userId) clearData();
+        });
       } else {
         clearData();
       }
+
       if (!didInit) {
         didInit = true;
         setIsLoading(false);
@@ -140,14 +184,36 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadData, clearData]);
 
-  const visibleLeads = leads;
-  const visibleFollowups = followups;
-  const visibleInteractions = interactions;
+  const isAdmin = currentUser?.role === 'Admin';
+
+  const visibleLeads = React.useMemo(
+    () =>
+      isAdmin || !currentUser
+        ? leads
+        : leads.filter((l) => l.assigned_rep_id === currentUser.id),
+    [leads, isAdmin, currentUser]
+  );
+  const visibleFollowups = React.useMemo(
+    () =>
+      isAdmin || !currentUser
+        ? followups
+        : followups.filter((f) => f.rep_id === currentUser.id),
+    [followups, isAdmin, currentUser]
+  );
+  const visibleInteractions = React.useMemo(
+    () =>
+      isAdmin || !currentUser
+        ? interactions
+        : interactions.filter((i) => i.rep_id === currentUser.id),
+    [interactions, isAdmin, currentUser]
+  );
 
   const todayPriorityFollowups = React.useMemo(() => {
     const todayStr = getTodayDateStr();
-    return followups.filter((f) => f.followup_date === todayStr && f.status === 'Pending');
-  }, [followups]);
+    return visibleFollowups.filter(
+      (f) => f.followup_date === todayStr && f.status === 'Pending'
+    );
+  }, [visibleFollowups]);
 
   // Sign in with email + password
   const login = useCallback(
@@ -157,16 +223,16 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Supabase is not configured.' };
       }
 
+      setAuthNotice(null);
+
       const email = identifier.trim();
       const { error } = await client.auth.signInWithPassword({ email, password });
       if (error) {
-        return {
-          success: false,
-          error:
-            error.message === 'Invalid login credentials'
-              ? 'Incorrect email/phone or password.'
-              : error.message,
-        };
+        // One message for every failure: distinguishing "Email not confirmed"
+        // from "Invalid login credentials" tells an attacker which addresses
+        // exist. The provider detail goes to the console, not the UI.
+        console.warn('[auth] sign-in failed', { code: error.code, message: error.message });
+        return { success: false, error: 'Incorrect email or password.' };
       }
 
       return { success: true };
@@ -224,22 +290,35 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       const newLead = inserted as Lead;
       setLeads((prev) => [newLead, ...prev]);
 
+      // The lead is saved at this point; the note and follow-up are best-effort
+      // extras. Report a partial failure instead of claiming success, so the
+      // caller does not close the form and lose the typed note.
       if (data.initialNotes && data.initialNotes.trim()) {
-        const { data: interactionRow } = await client
+        // Asked to act: authorship is the signed-in user, ownership is the
+        // assignee. Recording the assignee as the author forges the audit trail
+        // (an admin capturing a note for rep R would appear as R's own call).
+        const { data: interactionRow, error: interactionError } = await client
           .from('interactions')
           .insert({
             lead_id: newLead.id,
-            rep_id: repId,
+            rep_id: currentUser.id,
             notes: data.initialNotes.trim(),
             interaction_type: 'Phone Call',
           })
           .select()
           .single();
+        if (interactionError) {
+          return {
+            lead: newLead,
+            success: false,
+            error: `Lead saved, but the first note could not be logged: ${interactionError.message}`,
+          };
+        }
         if (interactionRow) setInteractions((prev) => [interactionRow as Interaction, ...prev]);
       }
 
       if (data.nextFollowupDate) {
-        const { data: followupRow } = await client
+        const { data: followupRow, error: followupError } = await client
           .from('followups')
           .insert({
             lead_id: newLead.id,
@@ -250,6 +329,13 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
           })
           .select()
           .single();
+        if (followupError) {
+          return {
+            lead: newLead,
+            success: false,
+            error: `Lead saved, but the follow-up could not be scheduled: ${followupError.message}`,
+          };
+        }
         if (followupRow) setFollowups((prev) => [followupRow as Followup, ...prev]);
       }
 
@@ -284,7 +370,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       setInteractions((prev) => [interactionRow as Interaction, ...prev]);
 
       if (data.nextFollowupDate) {
-        const { data: followupRow } = await client
+        const { data: followupRow, error: followupError } = await client
           .from('followups')
           .insert({
             lead_id: data.lead_id,
@@ -295,6 +381,10 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
           })
           .select()
           .single();
+        if (followupError) {
+          console.error('[crm] follow-up insert failed', followupError.message);
+          return false;
+        }
         if (followupRow) setFollowups((prev) => [followupRow as Followup, ...prev]);
       }
 
@@ -346,33 +436,33 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
+  // Admin-only: one atomic statement in the database (public.reassign_lead)
+  // instead of two client-side updates, which could leave pending follow-ups
+  // owned by the previous rep while the lead already belonged to the new one.
   const reassignLead = useCallback(async (leadId: string, newRepId: string) => {
     const client = getSupabaseClient();
-    if (!client) return false;
+    if (!client) return { success: false, error: 'Supabase is not configured.' };
 
-    const { data: updatedLead, error } = await client
-      .from('leads')
-      .update({ assigned_rep_id: newRepId })
-      .eq('id', leadId)
-      .select()
-      .single();
+    const { error } = await client.rpc('reassign_lead', {
+      p_lead_id: leadId,
+      p_new_rep_id: newRepId,
+    });
 
-    if (error || !updatedLead) return false;
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? (updatedLead as Lead) : l)));
-
-    const { data: updatedFups } = await client
-      .from('followups')
-      .update({ rep_id: newRepId })
-      .eq('lead_id', leadId)
-      .eq('status', 'Pending')
-      .select();
-
-    if (updatedFups) {
-      const fups = updatedFups as Followup[];
-      setFollowups((prev) => prev.map((f) => fups.find((u) => u.id === f.id) || f));
+    if (error) {
+      console.error('[crm] reassign_lead failed', error.message);
+      return { success: false, error: error.message };
     }
 
-    return true;
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, assigned_rep_id: newRepId } : l))
+    );
+    setFollowups((prev) =>
+      prev.map((f) =>
+        f.lead_id === leadId && f.status === 'Pending' ? { ...f, rep_id: newRepId } : f
+      )
+    );
+
+    return { success: true };
   }, []);
 
   const updateLeadStatus = useCallback(async (leadId: string, status: LeadStatus) => {
@@ -391,9 +481,88 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
-  // Admin-only: provisions a new team member via a server-side route (needs the service role key)
-  const createRepAccount = useCallback(
-    async (data: { full_name: string; email: string; phone: string; password: string; role: UserRole }) => {
+  // Correct a lead's captured details. A zero-row result means the write was
+  // filtered out by RLS (the lead is no longer the caller's), which is reported
+  // rather than swallowed — a silently ignored save is how bad data survives.
+  const updateLead = useCallback(
+    async (leadId: string, patch: LeadEditableFields) => {
+      const client = getSupabaseClient();
+      if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+      if (!patch.name?.trim() || !patch.phone_1?.trim() || !patch.preferred_property?.trim()) {
+        return { success: false, error: 'Name, primary phone and property are required.' };
+      }
+
+      const { data: updated, error } = await client
+        .from('leads')
+        .update({
+          name: patch.name.trim(),
+          phone_1: patch.phone_1.trim(),
+          mobile_2: patch.mobile_2?.trim() || null,
+          address: patch.address?.trim() || null,
+          dob: patch.dob || null,
+          marriage_anniversary: patch.marriage_anniversary || null,
+          preferred_property: patch.preferred_property.trim(),
+          budget: patch.budget?.trim() || null,
+        })
+        .eq('id', leadId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[crm] lead update failed', error.message);
+        return { success: false, error: error.message };
+      }
+      if (!updated) {
+        return {
+          success: false,
+          error: 'This lead could not be updated — it may no longer be assigned to you.',
+        };
+      }
+
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? (updated as Lead) : l)));
+      return { success: true };
+    },
+    []
+  );
+
+  // Delete a lead captured by mistake. The database removes its interactions and
+  // follow-ups too (ON DELETE CASCADE).
+  const deleteLead = useCallback(async (leadId: string) => {
+    const client = getSupabaseClient();
+    if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+    const { error, count } = await client
+      .from('leads')
+      .delete({ count: 'exact' })
+      .eq('id', leadId);
+
+    if (error) {
+      console.error('[crm] lead delete failed', error.message);
+      return { success: false, error: error.message };
+    }
+    if (!count) {
+      return {
+        success: false,
+        error: 'This lead could not be deleted — it may no longer be assigned to you.',
+      };
+    }
+
+    setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    setInteractions((prev) => prev.filter((i) => i.lead_id !== leadId));
+    setFollowups((prev) => prev.filter((f) => f.lead_id !== leadId));
+    return { success: true };
+  }, []);
+
+  // Attaches the admin bearer token and normalises the admin API contract.
+  // These routes answer JSON, but an unhandled failure upstream returns Next's
+  // HTML error page — calling res.json() on that throws and was previously
+  // reported as "Unable to reach the server", hiding the real status.
+  const callAdminApi = useCallback(
+    async (
+      path: string,
+      payload: Record<string, unknown>
+    ): Promise<{ success: boolean; error?: string; profile?: Profile }> => {
       const client = getSupabaseClient();
       if (!client) return { success: false, error: 'Supabase is not configured.' };
 
@@ -402,17 +571,24 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       if (!accessToken) return { success: false, error: 'Not authenticated.' };
 
       try {
-        const res = await fetch('/api/admin/create-user', {
+        const res = await fetch(path, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify(data),
+          body: JSON.stringify(payload),
         });
-        const result = await res.json();
-        if (!res.ok) {
-          return { success: false, error: result.error || 'Failed to create account.' };
+
+        const raw = await res.text();
+        let message: string | undefined;
+        try {
+          const parsed = JSON.parse(raw) as { error?: string; profile?: Profile };
+          message = parsed.error;
+          if (parsed.profile) return { success: true, profile: parsed.profile };
+        } catch {
+          console.error('[crm] admin route returned a non-JSON body', path, res.status);
         }
-        if (result.profile) {
-          setProfiles((prev) => [...prev, result.profile as Profile]);
+
+        if (!res.ok) {
+          return { success: false, error: message || `Request failed (${res.status}).` };
         }
         return { success: true };
       } catch {
@@ -422,56 +598,45 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  // Admin-only: sets a new password for a team member (real auth can't reveal the old one)
-  const resetUserPassword = useCallback(async (userId: string, newPassword: string) => {
-    const client = getSupabaseClient();
-    if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-    const { data: sessionData } = await client.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) return { success: false, error: 'Not authenticated.' };
-
-    try {
-      const res = await fetch('/api/admin/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ userId, newPassword }),
-      });
-      const result = await res.json();
-      if (!res.ok) {
-        return { success: false, error: result.error || 'Failed to reset password.' };
-      }
+  // Admin-only: provisions a new team member via a server-side route (needs the
+  // service role key; the role travels in app_metadata, which only that route
+  // can write — see supabase/migrations/20260916_security_hardening.sql).
+  const createRepAccount = useCallback(
+    async (data: { full_name: string; email: string; phone: string; password: string; role: UserRole }) => {
+      const result = await callAdminApi('/api/admin/create-user', data);
+      if (!result.success) return { success: false, error: result.error };
+      if (result.profile) setProfiles((prev) => [...prev, result.profile as Profile]);
       return { success: true };
-    } catch {
-      return { success: false, error: 'Unable to reach the server. Please try again.' };
-    }
-  }, []);
+    },
+    [callAdminApi]
+  );
 
-  // Admin-only: permanently deletes a team member's account
-  const deleteUser = useCallback(async (userId: string) => {
-    const client = getSupabaseClient();
-    if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-    const { data: sessionData } = await client.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) return { success: false, error: 'Not authenticated.' };
-
-    try {
-      const res = await fetch('/api/admin/delete-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ userId }),
+  // Admin-only, step-up authenticated: sets a new password for a team member
+  // (real auth can't reveal the old one). The caller's own password is required.
+  const resetUserPassword = useCallback(
+    async (userId: string, newPassword: string, adminPassword: string) => {
+      const { success, error } = await callAdminApi('/api/admin/reset-password', {
+        userId,
+        newPassword,
+        adminPassword,
       });
-      const result = await res.json();
-      if (!res.ok) {
-        return { success: false, error: result.error || 'Failed to delete user.' };
-      }
-      setProfiles((prev) => prev.filter((p) => p.id !== userId));
-      return { success: true };
-    } catch {
-      return { success: false, error: 'Unable to reach the server. Please try again.' };
-    }
-  }, []);
+      return { success, error };
+    },
+    [callAdminApi]
+  );
+
+  // Admin-only, step-up authenticated: permanently deletes a team member's account
+  const deleteUser = useCallback(
+    async (userId: string, adminPassword: string) => {
+      const { success, error } = await callAdminApi('/api/admin/delete-user', {
+        userId,
+        adminPassword,
+      });
+      if (success) setProfiles((prev) => prev.filter((p) => p.id !== userId));
+      return { success, error };
+    },
+    [callAdminApi]
+  );
 
   return (
     <CRMContext.Provider
@@ -488,6 +653,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         visibleFollowups,
         visibleInteractions,
         todayPriorityFollowups,
+        authNotice,
         login,
         logout,
         addLead,
@@ -496,6 +662,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         rescheduleFollowup,
         reassignLead,
         updateLeadStatus,
+        updateLead,
+        deleteLead,
         createRepAccount,
         resetUserPassword,
         deleteUser,

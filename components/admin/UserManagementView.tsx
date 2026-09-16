@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Profile, UserRole } from '@/lib/types';
+import { MIN_PASSWORD_LENGTH } from '@/lib/utils';
 import UserDetailModal from './UserDetailModal';
 import { UserPlus, Mail, Phone, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -23,6 +24,11 @@ export default function UserManagementView() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !password.trim()) return;
+
+    if (password.trim().length < MIN_PASSWORD_LENGTH) {
+      setFormError(`The password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+      return;
+    }
 
     setFormError(null);
     setIsSubmitting(true);
@@ -152,13 +158,19 @@ export default function UserManagementView() {
                   Set Initial Password <span className="text-red-500">*</span>
                 </label>
                 <input
+                  id="new-account-password-input"
                   required
                   type="password"
+                  minLength={MIN_PASSWORD_LENGTH}
+                  autoComplete="new-password"
                   placeholder="e.g. Welcome@123"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full text-xs p-2 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                 />
+                <p className="text-[10px] font-mono text-[#828282] mt-1">
+                  At least {MIN_PASSWORD_LENGTH} characters.
+                </p>
               </div>
 
               <div>

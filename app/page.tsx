@@ -23,13 +23,8 @@ import { X, Plus, Menu } from 'lucide-react';
 const emptySubscribe = () => () => {};
 
 function CRMApp() {
-  const { currentUser, isSupabaseConfigured, isLoading, todayPriorityFollowups, visibleLeads } = useCRM();
-
+  const { currentUser, isSupabaseConfigured, isLoading } = useCRM();
   const isMounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
-  const [activeTab, setActiveTab] = useState<string>('priority');
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [isMobileTabMenuOpen, setIsMobileTabMenuOpen] = useState(false);
 
   // Avoid hydration mismatch by waiting for client mount, and wait for the
   // initial Supabase session check before deciding what to render
@@ -50,10 +45,9 @@ function CRMApp() {
         <div className="max-w-md w-full bg-[#efefef] border border-[#e8e8e8] rounded-lg p-6 text-center">
           <p className="text-sm font-medium text-[#202020] mb-1">Supabase is not configured</p>
           <p className="text-xs text-[#4d4d4d]">
-            Add <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code>,{' '}
-            <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, and{' '}
-            <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> to your <code className="font-mono">.env</code> file
-            and restart the dev server.
+            Add <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
+            <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to your{' '}
+            <code className="font-mono">.env</code> file and restart the dev server.
           </p>
         </div>
       </div>
@@ -64,6 +58,23 @@ function CRMApp() {
   if (!currentUser) {
     return <AuthModal />;
   }
+
+  // Keyed on the identity: React discards the whole subtree's state when the
+  // signed-in user changes, so an open drawer can never re-render the previous
+  // user's customer record (name, phones, address, budget, personal dates) to
+  // the next person who signs in on the same browser.
+  return <AuthenticatedShell key={currentUser.id} />;
+}
+
+function AuthenticatedShell() {
+  const { currentUser, todayPriorityFollowups, visibleLeads } = useCRM();
+
+  const [activeTab, setActiveTab] = useState<string>('priority');
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const [isMobileTabMenuOpen, setIsMobileTabMenuOpen] = useState(false);
+
+  if (!currentUser) return null;
 
   const isAdmin = currentUser.role === 'Admin';
 

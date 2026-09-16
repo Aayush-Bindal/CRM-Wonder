@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test:rls": "bun supabase/tests/rls-invariants.test.mjs",
     "clean": "next clean"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "4.1.11",
     "@types/node": "^20",
     "@types/react": "^19",

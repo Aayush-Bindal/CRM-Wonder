@@ -23,12 +23,19 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
   const [anniversary, setAnniversary] = useState('');
   const [initialNotes, setInitialNotes] = useState('');
   const [nextFollowupDate, setNextFollowupDate] = useState(getRelativeDateStr(1)); // tomorrow by default
-  const [assignedRepId, setAssignedRepId] = useState(currentUser?.id || '');
+  // An Admin must choose a rep: defaulting to currentUser.id would put the lead
+  // on an Administrator, which no rep dashboard ever shows and no rep follow-up
+  // query ever returns.
+  const [assignedRepId, setAssignedRepId] = useState(
+    currentUser?.role === 'Admin' ? '' : currentUser?.id || ''
+  );
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const isAdmin = currentUser?.role === 'Admin';
+  const reps = profiles.filter((p) => p.role === 'Sales_Rep');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,9 +43,15 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
       return;
     }
 
+    if (isAdmin && !reps.some((rep) => rep.id === assignedRepId)) {
+      setFormError('Select the sales representative this lead belongs to.');
+      return;
+    }
+
+    setFormError(null);
     setLoading(true);
 
-    await addLead({
+    const result = await addLead({
       name: name.trim(),
       phone_1: phone1.trim(),
       mobile_2: mobile2.trim() || undefined,
@@ -53,6 +66,13 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
     });
 
     setLoading(false);
+
+    // Keep the form open on failure so nothing the rep typed is lost.
+    if (!result.success) {
+      setFormError(result.error || 'The lead could not be saved.');
+      return;
+    }
+
     onClose();
   };
 
@@ -82,6 +102,11 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+          {formError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded">
+              {formError}
+            </div>
+          )}
           {/* Section 1: Lead Identity */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -163,17 +188,17 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
                   Assign To Sales Rep
                 </label>
                 <select
+                  id="quick-add-assign-rep"
                   value={assignedRepId}
                   onChange={(e) => setAssignedRepId(e.target.value)}
                   className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                 >
-                  {profiles
-                    .filter((p) => p.role === 'Sales_Rep')
-                    .map((rep) => (
-                      <option key={rep.id} value={rep.id}>
-                        {rep.full_name}
-                      </option>
-                    ))}
+                  <option value="">Select a representative…</option>
+                  {reps.map((rep) => (
+                    <option key={rep.id} value={rep.id}>
+                      {rep.full_name}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}

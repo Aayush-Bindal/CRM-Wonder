@@ -5,7 +5,7 @@ import { useCRM } from '@/lib/crmContext';
 import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function AuthModal() {
-  const { login } = useCRM();
+  const { login, authNotice } = useCRM();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +20,7 @@ export default function AuthModal() {
     if (!result.success) {
       setError(result.error || 'Unable to sign in. Please check your credentials.');
     }
+    setPassword('');
     setLoading(false);
   };
 
@@ -55,6 +56,13 @@ export default function AuthModal() {
               </div>
             )}
 
+            {!error && authNotice && (
+              <div className="p-3 bg-amber-50 border border-amber-200 text-xs text-amber-800 rounded flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                <span>{authNotice}</span>
+              </div>
+            )}
+
             <div>
               <label
                 htmlFor="login-identifier"
@@ -68,6 +76,8 @@ export default function AuthModal() {
                   id="login-identifier"
                   type="email"
                   required
+                  maxLength={254}
+                  autoComplete="username"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="name@gmail.com"
@@ -89,6 +99,8 @@ export default function AuthModal() {
                   id="login-password"
                   type="password"
                   required
+                  maxLength={72}
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"

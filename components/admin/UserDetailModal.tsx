@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { getSupabaseClient } from '@/lib/supabase/client';
 import { Profile } from '@/lib/types';
+import { MIN_PASSWORD_LENGTH } from '@/lib/utils';
 import {
   X,
   Mail,
@@ -96,6 +96,7 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -115,6 +116,15 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
   const failedCount = chartLeads.filter((l) => l.status === 'Closed Lost').length;
   const workingCount = chartLeads.length - successCount - failedCount;
 
+  // The one-time display of a freshly set password must not outlive its
+  // usefulness: it is plaintext in the DOM while it is on screen, so it is
+  // cleared on a timer as well as by the Done button.
+  useEffect(() => {
+    if (!resetSuccessPassword) return;
+    const timer = setTimeout(() => setResetSuccessPassword(null), 60000);
+    return () => clearTimeout(timer);
+  }, [resetSuccessPassword]);
+
   const resetFlow = () => {
     setShowResetForm(false);
     setAdminPassword('');
@@ -127,38 +137,21 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
     e.preventDefault();
     setResetError(null);
 
-    if (newPassword.length < 6) {
-      setResetError('New password must be at least 6 characters.');
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setResetError(`New password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
 
-    if (!currentUser) {
-      setResetError('Not authenticated.');
+    if (!adminPassword) {
+      setResetError('Confirm your own password to reset another account.');
       return;
     }
 
     setIsSubmitting(true);
 
-    // Re-authenticate the admin's own password as a step-up confirmation
-    const client = getSupabaseClient();
-    if (!client) {
-      setIsSubmitting(false);
-      setResetError('Supabase is not configured.');
-      return;
-    }
-
-    const { error: reauthError } = await client.auth.signInWithPassword({
-      email: currentUser.email,
-      password: adminPassword,
-    });
-
-    if (reauthError) {
-      setIsSubmitting(false);
-      setResetError('Incorrect admin password. Please try again.');
-      return;
-    }
-
-    const result = await resetUserPassword(profile.id, newPassword);
+    // The server re-verifies this password before applying the reset; the form
+    // only decides whether it is worth sending.
+    const result = await resetUserPassword(profile.id, newPassword, adminPassword);
     setIsSubmitting(false);
 
     if (!result.success) {
@@ -166,15 +159,25 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
       return;
     }
 
+    // Stop retaining the secrets as soon as they have been consumed.
+    setAdminPassword('');
+    setNewPassword('');
     setResetSuccessPassword(newPassword);
   };
 
   const handleDelete = async () => {
     setDeleteError(null);
+
+    if (!deletePassword) {
+      setDeleteError('Confirm your own password to delete an account.');
+      return;
+    }
+
     setIsDeleting(true);
 
-    const result = await deleteUser(profile.id);
+    const result = await deleteUser(profile.id, deletePassword);
     setIsDeleting(false);
+    setDeletePassword('');
 
     if (!result.success) {
       setDeleteError(result.error || 'Failed to delete user.');
@@ -276,6 +279,7 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
                     type="password"
                     autoFocus
                     required
+                    autoComplete="current-password"
                     value={adminPassword}
                     onChange={(e) => setAdminPassword(e.target.value)}
                     placeholder="••••••••"
@@ -290,13 +294,17 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
                     id="new-password-input"
                     type="password"
                     required
-                    minLength={6}
+                    minLength={MIN_PASSWORD_LENGTH}
+                    autoComplete="new-password"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="e.g. Welcome@123"
                     className="w-full text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                   />
                 </div>
+                <p className="text-[10px] font-mono text-[#828282]">
+                  At least {MIN_PASSWORD_LENGTH} characters.
+                </p>
                 <div className="flex gap-2 justify-end pt-1">
                   <button
                     type="button"
@@ -376,10 +384,28 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
                 <p className="text-xs text-[#4d4d4d]">
                   Delete {profile.full_name}&apos;s account? This cannot be undone.
                 </p>
+                <div>
+                  <label className="block text-[10px] font-mono uppercase text-[#828282] mb-1">
+                    Confirm your admin password
+                  </label>
+                  <input
+                    id="admin-delete-password-input"
+                    type="password"
+                    autoFocus
+                    autoComplete="current-password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
+                  />
+                </div>
                 <div className="flex gap-2 justify-end">
                   <button
                     type="button"
-                    onClick={() => setShowDeleteConfirm(false)}
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setDeletePassword('');
+                    }}
                     className="px-3 py-1.5 text-xs font-mono text-[#4d4d4d] hover:bg-[#efefef] rounded transition-colors"
                   >
                     Cancel
@@ -388,7 +414,7 @@ export default function UserDetailModal({ profile, onClose }: UserDetailModalPro
                     id="confirm-delete-user-btn"
                     type="button"
                     onClick={handleDelete}
-                    disabled={isDeleting}
+                    disabled={isDeleting || !deletePassword}
                     className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-medium transition-colors rounded disabled:opacity-50"
                   >
                     {isDeleting ? 'Deleting...' : 'Confirm Delete'}
