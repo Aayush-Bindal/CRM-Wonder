@@ -49,3 +49,85 @@ body {
   background: #bfbfbf;
 }
 
+/* Long-form legal documents (app/privacy, app/terms). Semantic HTML plus these
+   rules, rather than a className on every heading and paragraph. */
+.legal-prose section {
+  padding: 26px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.legal-prose section:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.legal-prose h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.legal-prose h2 > span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--accent-brass);
+}
+
+.legal-prose p {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+.legal-prose ul {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+.legal-prose li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.legal-prose li::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 9px;
+  width: 5px;
+  height: 5px;
+  background: var(--accent-ember);
+}
+
+/* Term / description pairs, used for the data categories and contact details. */
+.legal-prose dl {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+.legal-prose dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.legal-prose dd {
+  margin-top: 3px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.legal-prose strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+

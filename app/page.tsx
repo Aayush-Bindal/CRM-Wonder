@@ -30,7 +30,7 @@ function CRMApp() {
   // initial Supabase session check before deciding what to render
   if (!isMounted || isLoading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="flex flex-1 items-center justify-center bg-white">
         <div className="flex items-center gap-2 font-mono text-xs text-[#828282]">
           <span className="w-2.5 h-2.5 rounded-full bg-[#ff682c] animate-pulse" />
           <span>WONDER CRM</span>
@@ -41,7 +41,7 @@ function CRMApp() {
 
   if (!isSupabaseConfigured) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center px-4">
+      <div className="flex flex-1 items-center justify-center bg-white px-4">
         <div className="max-w-md w-full bg-[#efefef] border border-[#e8e8e8] rounded-lg p-6 text-center">
           <p className="text-sm font-medium text-[#202020] mb-1">Supabase is not configured</p>
           <p className="text-xs text-[#4d4d4d]">
@@ -129,7 +129,7 @@ function AuthenticatedShell() {
   const currentTabObj = activeTabsList.find((t) => t.id === currentTab) || activeTabsList[0];
 
   return (
-    <div className="min-h-screen bg-[#ffffff] text-[#202020] flex flex-col font-sans selection:bg-[#ff682c] selection:text-white">
+    <div className="flex-1 bg-[#ffffff] text-[#202020] flex flex-col font-sans selection:bg-[#ff682c] selection:text-white">
       {/* Top Navigation with Wonder branding & restored profile menu */}
       <Navbar />
 
