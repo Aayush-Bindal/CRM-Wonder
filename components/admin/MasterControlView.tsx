@@ -40,7 +40,7 @@ export default function MasterControlView({
   return (
     <div className="space-y-6">
       {/* Master Header */}
-      <div className="bg-[#efefef] p-6 rounded-lg border border-[#e8e8e8]">
+      <div className="bg-[#efefef] p-4 rounded-lg border border-[#e8e8e8] sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -73,52 +73,59 @@ export default function MasterControlView({
           </div>
         </div>
 
-        {/* Executive Pulse Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-[#e0e0e0]">
-          <div className="bg-white p-4 rounded border border-[#e8e8e8]">
-            <span className="text-[10px] font-mono uppercase text-[#828282] block">
-              Total Inquiries
+        {/* Executive Pulse Metrics.
+            On a phone this is one strip of four counters: the long labels and the
+            explanatory captions below each number are what forced a 2x2 grid, so
+            they are swapped for a short label and revealed from sm upwards. */}
+        <div className="mt-4 grid grid-cols-4 gap-2 border-t border-[#e0e0e0] pt-4 sm:mt-6 sm:gap-3 sm:pt-5">
+          <div className="bg-white px-1.5 py-2.5 rounded border border-[#e8e8e8] sm:p-4">
+            <span className="block text-[9px] leading-tight font-mono uppercase text-[#828282] sm:text-[10px] sm:leading-normal">
+              <span className="sm:hidden">Inquiries</span>
+              <span className="hidden sm:inline">Total Inquiries</span>
             </span>
-            <span className="text-2xl font-mono font-bold text-[#202020]">
+            <span className="block text-lg font-mono font-bold text-[#202020] sm:text-2xl">
               {totalLeads}
             </span>
-            <span className="text-[10px] text-[#4d4d4d] block mt-0.5">
+            <span className="hidden text-[10px] text-[#4d4d4d] sm:mt-0.5 sm:block">
               Across all properties
             </span>
           </div>
 
-          <div className="bg-white p-4 rounded border border-[#e8e8e8]">
-            <span className="text-[10px] font-mono uppercase text-[#828282] block">
-              Site Visits & Neg.
+          <div className="bg-white px-1.5 py-2.5 rounded border border-[#e8e8e8] sm:p-4">
+            <span className="block text-[9px] leading-tight font-mono uppercase text-[#828282] sm:text-[10px] sm:leading-normal">
+              <span className="sm:hidden">Visits</span>
+              <span className="hidden sm:inline">Site Visits &amp; Neg.</span>
             </span>
-            <span className="text-2xl font-mono font-bold text-[#ff682c]">
+            <span className="block text-lg font-mono font-bold text-[#ff682c] sm:text-2xl">
               {activeVisits}
             </span>
-            <span className="text-[10px] text-[#4d4d4d] block mt-0.5">
+            <span className="hidden text-[10px] text-[#4d4d4d] sm:mt-0.5 sm:block">
               High intent pipeline
             </span>
           </div>
 
-          <div className="bg-white p-4 rounded border border-[#e8e8e8]">
-            <span className="text-[10px] font-mono uppercase text-[#828282] block">
-              Follow-ups Due Today
+          <div className="bg-white px-1.5 py-2.5 rounded border border-[#e8e8e8] sm:p-4">
+            <span className="block text-[9px] leading-tight font-mono uppercase text-[#828282] sm:text-[10px] sm:leading-normal">
+              <span className="sm:hidden">Due Today</span>
+              <span className="hidden sm:inline">Follow-ups Due Today</span>
             </span>
-            <span className="text-2xl font-mono font-bold text-[#816729]">
+            <span className="block text-lg font-mono font-bold text-[#816729] sm:text-2xl">
               {pendingToday}
             </span>
-            <span className="text-[10px] text-[#4d4d4d] block mt-0.5">
+            <span className="hidden text-[10px] text-[#4d4d4d] sm:mt-0.5 sm:block">
               {todayFollowups.length - pendingToday} completed
             </span>
           </div>
 
-          <div className="bg-white p-4 rounded border border-[#e8e8e8]">
-            <span className="text-[10px] font-mono uppercase text-[#828282] block">
-              Active Representatives
+          <div className="bg-white px-1.5 py-2.5 rounded border border-[#e8e8e8] sm:p-4">
+            <span className="block text-[9px] leading-tight font-mono uppercase text-[#828282] sm:text-[10px] sm:leading-normal">
+              <span className="sm:hidden">Reps</span>
+              <span className="hidden sm:inline">Active Representatives</span>
             </span>
-            <span className="text-2xl font-mono font-bold text-emerald-600">
+            <span className="block text-lg font-mono font-bold text-emerald-600 sm:text-2xl">
               {profiles.filter((p) => p.role === 'Sales_Rep').length}
             </span>
-            <span className="text-[10px] text-[#4d4d4d] block mt-0.5">
+            <span className="hidden text-[10px] text-[#4d4d4d] sm:mt-0.5 sm:block">
               Dedicated sales team
             </span>
           </div>
