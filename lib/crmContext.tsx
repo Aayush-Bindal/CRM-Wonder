@@ -21,6 +21,9 @@ interface CRMContextType {
   interactions: Interaction[];
   followups: Followup[];
   isSupabaseConfigured: boolean;
+  // True until the session check has settled: the first auth event, plus the
+  // profile row when that event carried a session. Screens must not choose
+  // between the CRM and the sign-in form while this is still up.
   isLoading: boolean;
   activeRole: UserRole | null;
 
@@ -88,32 +91,74 @@ interface CRMContextType {
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
 
+// Why a session was refused, carried across the redirect to /login. The
+// provider that raised it is unmounted on the way there, and an explanation
+// that vanishes with it is no explanation at all.
+const AUTH_NOTICE_KEY = 'wonder:auth-notice';
+
+function readStoredAuthNotice(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(AUTH_NOTICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeAuthNotice(notice: string | null): void {
+  try {
+    if (notice) window.sessionStorage.setItem(AUTH_NOTICE_KEY, notice);
+    else window.sessionStorage.removeItem(AUTH_NOTICE_KEY);
+  } catch {
+    // Storage refused (private mode, blocked cookies): the notice is simply not
+    // carried across, which is how it behaved before it was persisted at all.
+  }
+}
+
 export function CRMProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [followups, setFollowups] = useState<Followup[]>([]);
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [authNotice, setAuthNoticeState] = useState<string | null>(readStoredAuthNotice);
+
+  const setAuthNotice = useCallback((notice: string | null) => {
+    setAuthNoticeState(notice);
+    storeAuthNotice(notice);
+  }, []);
 
   const [isSupabaseConfigured] = useState<boolean>(() => {
     const config = getSupabaseConfig();
     return Boolean(config.url && config.key);
   });
-  // Derived before the first paint so the effect below never has to set it
-  // synchronously; with no client configured there is nothing to wait for.
-  const [isLoading, setIsLoading] = useState<boolean>(isSupabaseConfigured);
+  // Which identity the session check has settled on: null while it is still in
+  // flight, '' once it is over with nobody signed in, otherwise the user id.
+  //
+  // A plain boolean cannot carry this. The session is only half the answer —
+  // until the profile row comes back there is no user to render, so a flag that
+  // drops as soon as the auth event arrives shows the signed-out screen to a
+  // signed-in visitor for the length of that round trip, on every visit.
+  const [settledUserId, setSettledUserId] = useState<string | null>(
+    isSupabaseConfigured ? null : ''
+  );
+  // With no client configured there is nothing to wait for.
+  const isLoading = settledUserId === null;
 
   // Identity the in-flight load belongs to. Every write is gated on this so a
   // slow response from a previous user can never overwrite the current session.
   const activeUserIdRef = useRef<string | null>(null);
 
+  // Signed out — or signed out because the session was refused. Either way
+  // there is no identity left to wait for, so the check settles here as well
+  // and no caller has to track that separately.
   const clearData = useCallback(() => {
     setCurrentUser(null);
     setProfiles([]);
     setLeads([]);
     setInteractions([]);
     setFollowups([]);
+    setSettledUserId('');
   }, []);
 
   const loadData = useCallback(async (userId: string) => {
@@ -160,31 +205,30 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     setLeads((leadsRes.data as Lead[]) || []);
     setInteractions((interactionsRes.data as Interaction[]) || []);
     setFollowups((followupsRes.data as Followup[]) || []);
-  }, []);
+    // Same synchronous block as the writes above, so the render that ends the
+    // settling state is also the one that has the user to put on screen.
+    setSettledUserId(userId);
+  }, [setAuthNotice]);
 
   // Track the signed-in session and (re)load data whenever it changes
   useEffect(() => {
     const client = getSupabaseClient();
     if (!client) return;
 
-    let didInit = false;
-
     const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
       const userId = session?.user?.id ?? null;
       activeUserIdRef.current = userId;
 
+      // Both branches settle the check themselves — loadData once it holds the
+      // profile, clearData immediately — so nothing downstream has to guess
+      // when it is safe to render.
       if (userId) {
         void loadData(userId).catch(() => {
-          // Never leave the splash screen up because a load failed.
+          // A failed load must not leave the boot state up forever.
           if (activeUserIdRef.current === userId) clearData();
         });
       } else {
         clearData();
-      }
-
-      if (!didInit) {
-        didInit = true;
-        setIsLoading(false);
       }
     });
 
@@ -246,7 +290,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
 
       return { success: true };
     },
-    []
+    [setAuthNotice]
   );
 
   const logout = useCallback(async () => {

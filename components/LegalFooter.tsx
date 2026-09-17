@@ -9,7 +9,7 @@ import { LEGAL, LEGAL_DOCS } from '@/lib/legal';
 // there is no phone arrangement left to keep in step.
 //
 // A phone still reaches both documents from the sign-in screen, which states the
-// acceptance and links them in components/AuthModal.tsx.
+// acceptance and links them in components/LoginScreen.tsx.
 export default function LegalFooter() {
   return (
     <footer className="hidden md:block bg-[#202020]">

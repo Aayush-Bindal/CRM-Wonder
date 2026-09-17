@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useCRM } from '@/lib/crmContext';
 import { Lock, Mail, ArrowRight, AlertCircle } from 'lucide-react';
 
-export default function AuthModal() {
+export default function LoginScreen() {
   const { login, authNotice } = useCRM();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');

@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useSyncExternalStore } from 'react';
+import React, { useState } from 'react';
 import { CRMProvider, useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
 import Navbar from '@/components/Navbar';
-import AuthModal from '@/components/AuthModal';
+import AuthGate from '@/components/AuthGate';
 import LeadDetailsDrawer from '@/components/LeadDetailsDrawer';
 import QuickAddLeadModal from '@/components/sales-rep/QuickAddLeadModal';
 
@@ -20,44 +20,12 @@ import UserManagementView from '@/components/admin/UserManagementView';
 
 import { X, Plus, Menu } from 'lucide-react';
 
-const emptySubscribe = () => () => {};
-
 function CRMApp() {
-  const { currentUser, isSupabaseConfigured, isLoading } = useCRM();
-  const isMounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
+  const { currentUser } = useCRM();
 
-  // Avoid hydration mismatch by waiting for client mount, and wait for the
-  // initial Supabase session check before deciding what to render
-  if (!isMounted || isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center bg-white">
-        <div className="flex items-center gap-2 font-mono text-xs text-[#828282]">
-          <span className="w-2.5 h-2.5 rounded-full bg-[#ff682c] animate-pulse" />
-          <span>WONDER CRM</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isSupabaseConfigured) {
-    return (
-      <div className="flex flex-1 items-center justify-center bg-white px-4">
-        <div className="max-w-md w-full bg-[#efefef] border border-[#e8e8e8] rounded-lg p-6 text-center">
-          <p className="text-sm font-medium text-[#202020] mb-1">Supabase is not configured</p>
-          <p className="text-xs text-[#4d4d4d]">
-            Add <code className="font-mono">NEXT_PUBLIC_SUPABASE_URL</code> and{' '}
-            <code className="font-mono">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to your{' '}
-            <code className="font-mono">.env</code> file and restart the dev server.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // If user is not authenticated, show minimalist login screen
-  if (!currentUser) {
-    return <AuthModal />;
-  }
+  // The gate above has already settled the session and sent anyone without one
+  // to /login, so this only ever renders with a user in hand.
+  if (!currentUser) return null;
 
   // Keyed on the identity: React discards the whole subtree's state when the
   // signed-in user changes, so an open drawer can never re-render the previous
@@ -307,7 +275,9 @@ function AuthenticatedShell() {
 export default function Home() {
   return (
     <CRMProvider>
-      <CRMApp />
+      <AuthGate require="session">
+        <CRMApp />
+      </AuthGate>
     </CRMProvider>
   );
 }

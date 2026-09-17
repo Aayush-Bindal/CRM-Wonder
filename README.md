@@ -97,8 +97,11 @@ from refreshing its session.
 
 ```
 app/                    Next.js App Router pages and API routes
+  page.tsx              The CRM itself; visitors without a session are sent to /login
+  login/                Sign-in route, the only page reachable while signed out
   api/admin/            Admin-only server routes (create user, reset password, delete user)
 components/
+  AuthGate.tsx          Settles the session before either screen is allowed to render
   admin/                Admin dashboard views
   sales-rep/            Sales rep dashboard views
 lib/
