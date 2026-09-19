@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { getRelativeDateStr } from '@/lib/utils';
+import { getRelativeDateStr, normalizePhoneInput } from '@/lib/utils';
 import { X, Calendar, Gift, Heart } from 'lucide-react';
 
 interface QuickAddLeadModalProps {
@@ -53,8 +53,8 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
 
     const result = await addLead({
       name: name.trim(),
-      phone_1: phone1.trim(),
-      mobile_2: mobile2.trim() || undefined,
+      phone_1: normalizePhoneInput(phone1),
+      mobile_2: normalizePhoneInput(mobile2) || undefined,
       address: address.trim() || undefined,
       preferred_property: preferredProperty.trim(),
       budget: budget.trim() || undefined,
@@ -132,9 +132,11 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
                 id="quick-add-phone-1"
                 required
                 type="tel"
-                placeholder="+91 98765 43210"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="9876543210"
                 value={phone1}
-                onChange={(e) => setPhone1(e.target.value)}
+                onChange={(e) => setPhone1(normalizePhoneInput(e.target.value))}
                 className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
               />
             </div>
@@ -146,9 +148,11 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
               <input
                 id="quick-add-phone-2"
                 type="tel"
-                placeholder="Spouse / Assistant phone"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="9876543210"
                 value={mobile2}
-                onChange={(e) => setMobile2(e.target.value)}
+                onChange={(e) => setMobile2(normalizePhoneInput(e.target.value))}
                 className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
               />
             </div>

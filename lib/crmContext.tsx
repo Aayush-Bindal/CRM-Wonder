@@ -11,7 +11,7 @@ import {
   InteractionType,
   LeadEditableFields,
 } from './types';
-import { getTodayDateStr } from './utils';
+import { getTodayDateStr, isPhoneNumber } from './utils';
 import { getSupabaseClient, getSupabaseConfig } from './supabase/client';
 
 interface CRMContextType {
@@ -317,14 +317,20 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return { lead: null, success: false, error: 'Not authenticated.' };
       }
 
+      const phone1 = data.phone_1.trim();
+      const mobile2 = data.mobile_2?.trim() || '';
+      if (!isPhoneNumber(phone1) || (mobile2 && !isPhoneNumber(mobile2))) {
+        return { lead: null, success: false, error: 'Phone numbers must contain exactly 10 digits.' };
+      }
+
       const repId = data.assigned_rep_id || currentUser.id;
 
       const { data: inserted, error } = await client
         .from('leads')
         .insert({
           name: data.name.trim(),
-          phone_1: data.phone_1.trim(),
-          mobile_2: data.mobile_2?.trim() || null,
+          phone_1: phone1,
+          mobile_2: mobile2 || null,
           address: data.address?.trim() || null,
           dob: data.dob || null,
           marriage_anniversary: data.marriage_anniversary || null,
@@ -546,12 +552,18 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Name, primary phone and property are required.' };
       }
 
+      const phone1 = patch.phone_1.trim();
+      const mobile2 = patch.mobile_2?.trim() || '';
+      if (!isPhoneNumber(phone1) || (mobile2 && !isPhoneNumber(mobile2))) {
+        return { success: false, error: 'Phone numbers must contain exactly 10 digits.' };
+      }
+
       const { data: updated, error } = await client
         .from('leads')
         .update({
           name: patch.name.trim(),
-          phone_1: patch.phone_1.trim(),
-          mobile_2: patch.mobile_2?.trim() || null,
+          phone_1: phone1,
+          mobile_2: mobile2 || null,
           address: patch.address?.trim() || null,
           dob: patch.dob || null,
           marriage_anniversary: patch.marriage_anniversary || null,

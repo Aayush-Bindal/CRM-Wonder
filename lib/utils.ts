@@ -9,6 +9,14 @@ export function cn(...inputs: ClassValue[]) {
 // the enforced floor and the advertised one cannot drift apart.
 export const MIN_PASSWORD_LENGTH = 8;
 
+export const MAX_PHONE_DIGITS = 10;
+
+export const normalizePhoneInput = (value: string): string =>
+  value.replace(/\D/g, '').slice(0, MAX_PHONE_DIGITS);
+
+export const isPhoneNumber = (value: string): boolean =>
+  new RegExp(`^\\d{${MAX_PHONE_DIGITS}}$`).test(value);
+
 // Local calendar formatting, YYYY-MM-DD.
 //
 // Do not switch this to toISOString(): that converts to UTC first, so in

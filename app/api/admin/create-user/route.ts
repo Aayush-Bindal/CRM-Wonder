@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readJsonBody, requireAdmin } from '@/lib/supabase/server';
-import { MIN_PASSWORD_LENGTH } from '@/lib/utils';
+import { isPhoneNumber, MIN_PASSWORD_LENGTH } from '@/lib/utils';
 
 // POST /api/admin/create-user
 // Admin-only: provisions a new team member via Supabase Auth. The
@@ -29,6 +29,13 @@ export async function POST(req: NextRequest) {
   if (!fullName || !email) {
     return NextResponse.json(
       { error: 'Full name and email are required.' },
+      { status: 400 }
+    );
+  }
+
+  if (phone && !isPhoneNumber(phone)) {
+    return NextResponse.json(
+      { error: 'Phone numbers must contain exactly 10 digits.' },
       { status: 400 }
     );
   }

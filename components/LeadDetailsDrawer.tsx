@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Lead, LeadStatus, InteractionType, LeadEditableFields } from '@/lib/types';
 import { useCRM } from '@/lib/crmContext';
+import { normalizePhoneInput } from '@/lib/utils';
 import {
   X,
   Phone,
@@ -282,8 +283,12 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
                     id="edit-lead-phone-1"
                     required
                     type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
                     value={details.phone_1}
-                    onChange={(e) => setDetails((d) => ({ ...d, phone_1: e.target.value }))}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, phone_1: normalizePhoneInput(e.target.value) }))
+                    }
                     className="w-full text-xs p-2.5 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                   />
                 </div>
@@ -295,8 +300,12 @@ export default function LeadDetailsDrawer({ lead, onClose }: LeadDetailsDrawerPr
                   <input
                     id="edit-lead-phone-2"
                     type="tel"
+                    inputMode="numeric"
+                    maxLength={10}
                     value={details.mobile_2}
-                    onChange={(e) => setDetails((d) => ({ ...d, mobile_2: e.target.value }))}
+                    onChange={(e) =>
+                      setDetails((d) => ({ ...d, mobile_2: normalizePhoneInput(e.target.value) }))
+                    }
                     className="w-full text-xs p-2.5 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                   />
                 </div>

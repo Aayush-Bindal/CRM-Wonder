@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Profile, UserRole } from '@/lib/types';
-import { MIN_PASSWORD_LENGTH } from '@/lib/utils';
+import { MIN_PASSWORD_LENGTH, normalizePhoneInput } from '@/lib/utils';
 import UserDetailModal from './UserDetailModal';
 import { UserPlus, Mail, Phone, CheckCircle2, AlertCircle } from 'lucide-react';
 
@@ -146,9 +146,11 @@ export default function UserManagementView() {
                 </label>
                 <input
                   type="tel"
-                  placeholder="98765 43210"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="9876543210"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(normalizePhoneInput(e.target.value))}
                   className="w-full text-xs p-2 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
                 />
               </div>
