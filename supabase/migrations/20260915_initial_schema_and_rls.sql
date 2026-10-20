@@ -95,11 +95,17 @@ CREATE TABLE IF NOT EXISTS public.leads (
     marriage_anniversary DATE,
     preferred_property TEXT NOT NULL,
     budget TEXT,
-    assigned_rep_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+    assigned_rep_id UUID REFERENCES public.profiles(id) ON DELETE RESTRICT,
     status lead_status NOT NULL DEFAULT 'New',
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
 );
+
+-- Historical imports arrive without an owner. RLS keeps NULL-assigned leads
+-- invisible to reps (`assigned_rep_id = auth.uid()` never matches NULL); Admins
+-- see them and can assign them later. Repeated here so a database created
+-- before this column became nullable migrates too (this file is idempotent).
+ALTER TABLE public.leads ALTER COLUMN assigned_rep_id DROP NOT NULL;
 
 -- INTERACTIONS TABLE (Logs conversation notes, attending rep, timestamps)
 CREATE TABLE IF NOT EXISTS public.interactions (

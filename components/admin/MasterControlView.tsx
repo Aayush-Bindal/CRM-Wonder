@@ -1,10 +1,20 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
-import { getTodayDateStr } from '@/lib/utils';
+import { getTodayDateStr, isFollowupDuePast } from '@/lib/utils';
 import { Activity, Home } from 'lucide-react';
+
+// Recharts measures the DOM, so it must not run during SSR: the chart ships in
+// its own client chunk instead of breaking the server render of the dashboard.
+const TeamPerformanceChart = dynamic(() => import('./TeamPerformanceChart'), {
+  ssr: false,
+  loading: () => (
+    <div className="h-64 animate-pulse rounded-lg border border-[#e8e8e8] bg-white" />
+  ),
+});
 
 interface MasterControlViewProps {
   onSelectLead: (lead: Lead) => void;
@@ -25,8 +35,13 @@ export default function MasterControlView({
   // Local calendar day: toISOString() would still report yesterday's date for
   // the first hours of the local day in UTC+ timezones.
   const todayStr = getTodayDateStr();
-  const todayFollowups = followups.filter((f) => f.followup_date === todayStr);
-  const pendingToday = todayFollowups.filter((f) => f.status === 'Pending').length;
+  const openToday = followups.filter(
+    (f) => f.status === 'Pending' && f.followup_date === todayStr
+  ).length;
+  const duePast = followups.filter((f) => isFollowupDuePast(f, todayStr)).length;
+  const completedToday = followups.filter(
+    (f) => f.status === 'Completed' && f.followup_date === todayStr
+  ).length;
 
   // Newest first. Sorted once per data change rather than on every render.
   const sortedInteractions = useMemo(
@@ -106,14 +121,14 @@ export default function MasterControlView({
 
           <div className="bg-white px-1.5 py-2.5 rounded border border-[#e8e8e8] sm:p-4">
             <span className="block text-[9px] leading-tight font-mono uppercase text-[#828282] sm:text-[10px] sm:leading-normal">
-              <span className="sm:hidden">Due Today</span>
-              <span className="hidden sm:inline">Follow-ups Due Today</span>
+              <span className="sm:hidden">Open</span>
+              <span className="hidden sm:inline">Follow-ups Open</span>
             </span>
             <span className="block text-lg font-mono font-bold text-[#816729] sm:text-2xl">
-              {pendingToday}
+              {openToday + duePast}
             </span>
             <span className="hidden text-[10px] text-[#4d4d4d] sm:mt-0.5 sm:block">
-              {todayFollowups.length - pendingToday} completed
+              {duePast} due past · {completedToday} completed
             </span>
           </div>
 
@@ -131,6 +146,8 @@ export default function MasterControlView({
           </div>
         </div>
       </div>
+
+      <TeamPerformanceChart />
 
       {/* Real-time Interaction Feed */}
       <div>

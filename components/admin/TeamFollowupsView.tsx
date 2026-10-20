@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
-import { getTodayDateStr } from '@/lib/utils';
+import { getTodayDateStr, getRelativeDateStr, isFollowupDuePast, followupDaysPastDue, OVERDUE_ATTENTION_THRESHOLD } from '@/lib/utils';
 
 interface TeamFollowupsViewProps {
   onSelectLead: (lead: Lead) => void;
@@ -26,17 +26,23 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
       if (selectedRepId !== 'all' && f.rep_id !== selectedRepId) return false;
 
       // Status filter
-      if (selectedStatus !== 'all' && f.status !== selectedStatus) return false;
+      if (selectedStatus === 'due_past') {
+        if (!isFollowupDuePast(f, todayStr)) return false;
+      } else if (selectedStatus !== 'all' && f.status !== selectedStatus) {
+        return false;
+      }
 
-      // Date range filter
+      // Date range filter. The "today" view keeps a pending item once its date
+      // has passed: an overdue follow-up is still owed today.
       if (dateRange === 'today') {
-        return f.followup_date === todayStr;
+        return f.status === 'Pending'
+          ? f.followup_date <= todayStr
+          : f.followup_date === todayStr;
       }
       if (dateRange === 'week') {
-        const todayDate = new Date(todayStr);
-        const fupDate = new Date(f.followup_date);
-        const diffDays = (fupDate.getTime() - todayDate.getTime()) / (1000 * 3600 * 24);
-        return diffDays >= 0 && diffDays <= 7;
+        const weekEnd = getRelativeDateStr(7);
+        if (f.status === 'Pending' && f.followup_date < todayStr) return true;
+        return f.followup_date >= todayStr && f.followup_date <= weekEnd;
       }
 
       return true;
@@ -46,16 +52,21 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
   // Breakdown by Rep for Admin Oversight
   const repSummary = useMemo(() => {
     return reps.map((rep) => {
-      const repFups = followups.filter((f) => f.rep_id === rep.id && f.followup_date === todayStr);
-      const pending = repFups.filter((f) => f.status === 'Pending').length;
-      const completed = repFups.filter((f) => f.status === 'Completed').length;
-      return {
-        ...rep,
-        todayPending: pending,
-        todayCompleted: completed,
-      };
+      const repFups = followups.filter((f) => f.rep_id === rep.id);
+      const pending = repFups.filter(
+        (f) => f.status === 'Pending' && f.followup_date === todayStr
+      ).length;
+      const duePast = repFups.filter((f) => isFollowupDuePast(f, todayStr)).length;
+      const completed = repFups.filter(
+        (f) => f.status === 'Completed' && f.followup_date === todayStr
+      ).length;
+      return { ...rep, todayPending: pending, duePast, todayCompleted: completed };
     });
   }, [reps, followups, todayStr]);
+
+  const repsNeedingAttention = repSummary.filter(
+    (rep) => rep.duePast >= OVERDUE_ATTENTION_THRESHOLD
+  );
 
   return (
     <div className="space-y-6">
@@ -80,33 +91,61 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
 
         {/* Rep Today Load Matrix */}
         <div className="mt-6 pt-5 border-t border-[#e0e0e0]">
-          <span className="text-[10px] font-mono uppercase text-[#828282] block mb-2">
-            Today&apos;s Follow-up Workload by Representative
-          </span>
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <span className="text-[10px] font-mono uppercase text-[#828282]">
+              Today&apos;s Follow-up Workload by Representative
+            </span>
+            <span
+              className={`text-[10px] font-mono ${
+                repsNeedingAttention.length > 0 ? 'text-[#ff682c]' : 'text-[#828282]'
+              }`}
+            >
+              {repsNeedingAttention.length > 0
+                ? `${repsNeedingAttention.length} representative(s) have ${OVERDUE_ATTENTION_THRESHOLD}+ due-past follow-ups.`
+                : 'No representative is behind on follow-ups.'}
+            </span>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-            {repSummary.map((rep) => (
-              <button
-                key={rep.id}
-                onClick={() => setSelectedRepId(selectedRepId === rep.id ? 'all' : rep.id)}
-                className={`p-2.5 rounded border text-left transition-all ${
-                  selectedRepId === rep.id
-                    ? 'bg-[#202020] text-white border-[#202020]'
-                    : 'bg-white text-[#202020] border-[#e8e8e8] hover:border-[#d4d4d4]'
-                }`}
-              >
-                <span className="text-xs font-medium block truncate">
-                  {rep.full_name.split(' ')[0]}
-                </span>
-                <div className="flex items-center gap-2 mt-1 text-[10px] font-mono">
-                  <span className={selectedRepId === rep.id ? 'text-[#ff682c]' : 'text-amber-600'}>
-                    {rep.todayPending} P
+            {repSummary.map((rep) => {
+              const needsAttention = rep.duePast >= OVERDUE_ATTENTION_THRESHOLD;
+              return (
+                <button
+                  key={rep.id}
+                  onClick={() => setSelectedRepId(selectedRepId === rep.id ? 'all' : rep.id)}
+                  className={`p-2.5 rounded border text-left transition-all ${
+                    selectedRepId === rep.id
+                      ? 'bg-[#202020] text-white border-[#202020]'
+                      : `bg-white text-[#202020] border-[#e8e8e8] hover:border-[#d4d4d4] ${
+                          needsAttention ? 'ring-1 ring-[#ff682c]' : ''
+                        }`
+                  }`}
+                >
+                  <span className="text-xs font-medium block truncate">
+                    {rep.full_name.split(' ')[0]}
                   </span>
-                  <span className={selectedRepId === rep.id ? 'text-emerald-300' : 'text-emerald-700'}>
-                    {rep.todayCompleted} C
-                  </span>
-                </div>
-              </button>
-            ))}
+                  <div className="flex flex-wrap items-center gap-x-2 mt-1 text-[10px] font-mono">
+                    <span className={selectedRepId === rep.id ? 'text-[#ff682c]' : 'text-amber-600'}>
+                      {rep.todayPending} pending
+                    </span>
+                    <span className={selectedRepId === rep.id ? 'text-[#ffb899]' : 'text-[#ff682c]'}>
+                      {rep.duePast} due past
+                    </span>
+                    <span className={selectedRepId === rep.id ? 'text-emerald-300' : 'text-emerald-700'}>
+                      {rep.todayCompleted} done
+                    </span>
+                  </div>
+                  {needsAttention && (
+                    <span
+                      className={`text-[10px] font-mono mt-0.5 block ${
+                        selectedRepId === rep.id ? 'text-[#ffb899]' : 'text-[#ff682c]'
+                      }`}
+                    >
+                      Needs attention
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -120,7 +159,7 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
                 dateRange === 'today' ? 'bg-[#202020] text-white' : 'text-[#4d4d4d]'
               }`}
             >
-              Today
+              Today + Past Due
             </button>
             <button
               onClick={() => setDateRange('week')}
@@ -128,7 +167,7 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
                 dateRange === 'week' ? 'bg-[#202020] text-white' : 'text-[#4d4d4d]'
               }`}
             >
-              This Week
+              7 Days
             </button>
             <button
               onClick={() => setDateRange('all')}
@@ -149,6 +188,7 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
             <option value="all">All Statuses</option>
             <option value="Pending">Pending Only</option>
             <option value="Completed">Completed Only</option>
+            <option value="due_past">Due Past Only</option>
           </select>
 
           {/* Rep Filter */}
@@ -203,6 +243,11 @@ export default function TeamFollowupsView({ onSelectLead }: TeamFollowupsViewPro
                       <span className="text-[#ff682c]">
                         Rep: {rep?.full_name || 'Unassigned'}
                       </span>
+                      {isFollowupDuePast(item, todayStr) && (
+                        <span className="px-2 py-0.5 rounded text-[10px] bg-[#ff682c] text-white font-semibold">
+                          Due past · {followupDaysPastDue(item.followup_date, todayStr)}d
+                        </span>
+                      )}
                     </div>
 
                     {lead && (

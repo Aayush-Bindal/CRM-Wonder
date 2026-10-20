@@ -10,6 +10,7 @@ import {
   UserRole,
   InteractionType,
   LeadEditableFields,
+  LeadImportRow,
 } from './types';
 import { getTodayDateStr, isPhoneNumber } from './utils';
 import { getSupabaseClient, getSupabaseConfig } from './supabase/client';
@@ -74,6 +75,10 @@ interface CRMContextType {
   updateLead: (leadId: string, patch: LeadEditableFields) => Promise<{ success: boolean; error?: string }>;
   // Removes the lead and, by cascade, its interactions and follow-ups.
   deleteLead: (leadId: string) => Promise<{ success: boolean; error?: string }>;
+  // Admin-only bulk insert of historical, unassigned leads.
+  importLeads: (
+    rows: LeadImportRow[]
+  ) => Promise<{ success: boolean; inserted: number; error?: string }>;
   createRepAccount: (data: {
     full_name: string;
     email: string;
@@ -261,10 +266,12 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     [interactions, isAdmin, currentUser]
   );
 
+  // Pending items due today or earlier: a missed follow-up is carried forward in
+  // the priority queue until it is completed or rescheduled.
   const todayPriorityFollowups = React.useMemo(() => {
     const todayStr = getTodayDateStr();
     return visibleFollowups.filter(
-      (f) => f.followup_date === todayStr && f.status === 'Pending'
+      (f) => f.status === 'Pending' && f.followup_date <= todayStr
     );
   }, [visibleFollowups]);
 
@@ -399,6 +406,55 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       }
 
       return { lead: newLead, success: true };
+    },
+    [currentUser]
+  );
+
+  // Admin-only: historical leads arrive without an owner, so RLS keeps them out
+  // of every rep's view until an Admin assigns them. Chunked to stay inside the
+  // request size the REST endpoint accepts, and partially applied on failure:
+  // the rows already written are real, so they are reported and kept in state
+  // rather than pretending nothing happened.
+  const importLeads = useCallback(
+    async (
+      rows: LeadImportRow[]
+    ): Promise<{ success: boolean; inserted: number; error?: string }> => {
+      const client = getSupabaseClient();
+      if (!client) {
+        return { success: false, inserted: 0, error: 'Supabase is not configured.' };
+      }
+      if (!currentUser) {
+        return { success: false, inserted: 0, error: 'Not authenticated.' };
+      }
+      if (currentUser.role !== 'Admin') {
+        return { success: false, inserted: 0, error: 'Only an administrator may import leads.' };
+      }
+      if (rows.length === 0) return { success: true, inserted: 0 };
+
+      const CHUNK_SIZE = 500;
+      const created: Lead[] = [];
+
+      for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
+        const { data, error } = await client
+          .from('leads')
+          .insert(rows.slice(start, start + CHUNK_SIZE))
+          .select();
+
+        if (error) {
+          console.error('[crm] lead import failed', error.message);
+          if (created.length > 0) setLeads((prev) => [...created, ...prev]);
+          return {
+            success: false,
+            inserted: created.length,
+            error: `Import stopped after ${created.length} lead(s): ${error.message}`,
+          };
+        }
+
+        created.push(...((data as Lead[]) || []));
+      }
+
+      setLeads((prev) => [...created, ...prev]);
+      return { success: true, inserted: created.length };
     },
     [currentUser]
   );
@@ -729,6 +785,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         updateLeadStatus,
         updateLead,
         deleteLead,
+        importLeads,
         createRepAccount,
         resetUserPassword,
         deleteUser,

@@ -11,6 +11,15 @@
   --color-mist: #e8e8e8;
   --color-ember: #ff682c;
   --color-brass: #816729;
+  /* Semantic tokens consumed by the vendored shadcn chart primitive
+     (components/ui/chart.tsx): bg-background, text-foreground,
+     text-muted-foreground, border-border/50, fill-muted. Mapped onto the brand
+     palette so the chart inherits the existing look. */
+  --color-background: #ffffff;
+  --color-foreground: #202020;
+  --color-border: #e8e8e8;
+  --color-muted: #efefef;
+  --color-muted-foreground: #828282;
 }
 
 :root {

@@ -37,7 +37,9 @@ export interface Lead {
   dob?: string; // YYYY-MM-DD
   marriage_anniversary?: string; // YYYY-MM-DD
   preferred_property: string;
-  assigned_rep_id: string;
+  // Null for historical imports: the lead arrived without an owner and waits
+  // for an Admin to assign it. RLS hides these rows from reps.
+  assigned_rep_id: string | null;
   status: LeadStatus;
   budget?: string;
   created_at: string;
@@ -95,3 +97,19 @@ export type LeadEditableFields = Pick<
   | 'preferred_property'
   | 'budget'
 >;
+
+// One validated CSV row destined for public.leads. Historical imports carry no
+// owner: they are past records, not live workload, so assigned_rep_id is always
+// null until an Admin reassigns them.
+export interface LeadImportRow {
+  name: string;
+  phone_1: string;
+  mobile_2: string | null;
+  address: string | null;
+  dob: string | null;
+  marriage_anniversary: string | null;
+  preferred_property: string;
+  budget: string | null;
+  status: LeadStatus;
+  assigned_rep_id: null;
+}

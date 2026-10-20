@@ -7,12 +7,14 @@ import { escapeCsvField, getTodayDateStr } from '@/lib/utils';
 import {
   Search,
   Download,
+  Upload,
   Home,
   Gift,
   ChevronRight,
   ArrowRightLeft,
   CheckCircle2,
 } from 'lucide-react';
+import ImportLeadsModal from './ImportLeadsModal';
 
 interface FullLeadDatabaseViewProps {
   onSelectLead: (lead: Lead) => void;
@@ -31,6 +33,7 @@ export default function FullLeadDatabaseView({
   const [targetRepId, setTargetRepId] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [reassignError, setReassignError] = useState<string | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   const reps = profiles.filter((p) => p.role === 'Sales_Rep');
 
@@ -153,6 +156,14 @@ export default function FullLeadDatabaseView({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              id="import-leads-csv-btn"
+              onClick={() => setIsImportOpen(true)}
+              className="px-3.5 py-2 bg-white hover:bg-[#f5f5f5] text-[#202020] text-xs font-mono border border-[#d8d8d8] rounded flex items-center gap-1.5 transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5 text-[#ff682c]" />
+              <span>Import CSV</span>
+            </button>
             <button
               id="export-leads-csv-btn"
               onClick={handleExportCSV}
@@ -286,7 +297,7 @@ export default function FullLeadDatabaseView({
                         onClick={() => {
                           setReassigningLead(lead);
                           setReassignError(null);
-                          setTargetRepId(lead.assigned_rep_id);
+                          setTargetRepId(lead.assigned_rep_id ?? '');
                         }}
                         className="px-2.5 py-1 bg-[#efefef] hover:bg-[#e4e4e4] text-[#202020] font-mono text-[11px] rounded transition-colors inline-flex items-center gap-1"
                       >
@@ -309,6 +320,8 @@ export default function FullLeadDatabaseView({
         </div>
       </div>
 
+      {isImportOpen && <ImportLeadsModal onClose={() => setIsImportOpen(false)} />}
+
       {/* Reassign Lead Modal */}
       {reassigningLead && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-4">
@@ -330,6 +343,9 @@ export default function FullLeadDatabaseView({
                   onChange={(e) => setTargetRepId(e.target.value)}
                   className="w-full p-2.5 text-xs bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] font-mono"
                 >
+                  <option value="" disabled>
+                    Select a representative…
+                  </option>
                   {reps.map((rep) => (
                     <option key={rep.id} value={rep.id}>
                       {rep.full_name} ({rep.email})
@@ -358,8 +374,9 @@ export default function FullLeadDatabaseView({
               </button>
               <button
                 id="confirm-reassign-btn"
+                disabled={!targetRepId}
                 onClick={handleConfirmReassign}
-                className="px-4 py-2 bg-[#202020] text-white text-xs font-medium hover:bg-black transition-colors"
+                className="px-4 py-2 bg-[#202020] text-white text-xs font-medium hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Confirm Reassignment
               </button>
