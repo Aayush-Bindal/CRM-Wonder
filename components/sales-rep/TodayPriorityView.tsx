@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
-import { getTodayDateStr } from '@/lib/utils';
+import { getTodayDateStr, isFollowupDuePast, followupDaysPastDue } from '@/lib/utils';
 import {
   Phone,
   MessageSquare,
@@ -32,17 +32,21 @@ export default function TodayPriorityView({
   const [quickResolutionNote, setQuickResolutionNote] = useState('');
   const [activeCompleteId, setActiveCompleteId] = useState<string | null>(null);
 
-  // Filter followups for today
+  // Today's queue plus anything still pending from an earlier day: a missed
+  // follow-up is carried forward here every day until it is completed or
+  // rescheduled, instead of disappearing when its date passes.
+  const duePastFollowups = visibleFollowups
+    .filter((f) => isFollowupDuePast(f, todayStr))
+    .sort((a, b) => a.followup_date.localeCompare(b.followup_date)); // oldest first
   const todayFollowups = visibleFollowups.filter((f) => f.followup_date === todayStr);
-
-  const pendingFollowups = todayFollowups.filter((f) => f.status === 'Pending');
+  const pendingToday = todayFollowups.filter((f) => f.status === 'Pending');
   const completedFollowups = todayFollowups.filter((f) => f.status === 'Completed');
+  // Disjoint dates, so no de-duplication is needed.
+  const pendingQueue = [...duePastFollowups, ...pendingToday];
+  const allQueue = [...duePastFollowups, ...todayFollowups];
 
-  const displayedFollowups = todayFollowups.filter((f) => {
-    if (filter === 'pending') return f.status === 'Pending';
-    if (filter === 'completed') return f.status === 'Completed';
-    return true;
-  });
+  const displayedFollowups =
+    filter === 'pending' ? pendingQueue : filter === 'completed' ? completedFollowups : allQueue;
 
   const handleComplete = async (fupId: string) => {
     await completeFollowup(fupId, quickResolutionNote);
@@ -73,7 +77,7 @@ export default function TodayPriorityView({
               Today’s Priority
             </h1>
             <p className="text-xs text-[#4d4d4d] mt-0.5">
-              Scheduled client follow-ups, calls, and site visits queued for today.
+              Scheduled follow-ups queued for today, plus anything still pending from an earlier day.
             </p>
           </div>
 
@@ -81,7 +85,7 @@ export default function TodayPriorityView({
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="flex-1 sm:flex-initial px-3 sm:px-4 py-1.5 sm:py-2 bg-white rounded border border-[#e8e8e8] text-center">
               <span className="block text-lg sm:text-xl font-mono font-bold text-[#ff682c]">
-                {pendingFollowups.length}
+                {pendingQueue.length}
               </span>
               <span className="text-[10px] font-mono text-[#828282] uppercase">
                 Pending
@@ -109,7 +113,7 @@ export default function TodayPriorityView({
                 : 'bg-white text-[#4d4d4d] hover:bg-[#e4e4e4] border border-[#e8e8e8]'
             }`}
           >
-            Pending ({pendingFollowups.length})
+            Pending ({pendingQueue.length})
           </button>
           <button
             id="filter-priority-completed"
@@ -131,7 +135,7 @@ export default function TodayPriorityView({
                 : 'bg-white text-[#4d4d4d] hover:bg-[#e4e4e4] border border-[#e8e8e8]'
             }`}
           >
-            All Today ({todayFollowups.length})
+            All Due ({allQueue.length})
           </button>
         </div>
       </div>
@@ -155,6 +159,8 @@ export default function TodayPriorityView({
             const lead = visibleLeads.find((l) => l.id === item.lead_id);
             if (!lead) return null;
             const cleanPhone = lead.phone_1.replace(/[^0-9+]/g, '');
+            const isPast = isFollowupDuePast(item, todayStr);
+            const daysPast = followupDaysPastDue(item.followup_date, todayStr);
 
             return (
               <div
@@ -172,13 +178,22 @@ export default function TodayPriorityView({
                       <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#efefef] text-[#202020]">
                         {lead.status}
                       </span>
-                      {item.status === 'Completed' ? (
+                      {isPast ? (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#ff682c] text-white font-semibold">
+                          DUE PAST · {daysPast}d
+                        </span>
+                      ) : item.status === 'Completed' ? (
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
                           COMPLETED
                         </span>
                       ) : (
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#fff2ec] text-[#ff682c] font-semibold">
                           DUE TODAY
+                        </span>
+                      )}
+                      {isPast && (
+                        <span className="text-[10px] font-mono text-[#828282]">
+                          Originally scheduled {item.followup_date}
                         </span>
                       )}
                     </div>
@@ -331,6 +346,7 @@ export default function TodayPriorityView({
                     </span>
                     <input
                       type="date"
+                      min={todayStr}
                       value={newDate}
                       onChange={(e) => setNewDate(e.target.value)}
                       className="text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020] w-full sm:w-auto"

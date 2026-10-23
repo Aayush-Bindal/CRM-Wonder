@@ -261,10 +261,12 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
     [interactions, isAdmin, currentUser]
   );
 
+  // Pending items due today or earlier: a missed follow-up is carried forward in
+  // the priority queue until it is completed or rescheduled.
   const todayPriorityFollowups = React.useMemo(() => {
     const todayStr = getTodayDateStr();
     return visibleFollowups.filter(
-      (f) => f.followup_date === todayStr && f.status === 'Pending'
+      (f) => f.status === 'Pending' && f.followup_date <= todayStr
     );
   }, [visibleFollowups]);
 
