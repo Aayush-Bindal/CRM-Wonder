@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { PREFERRED_PROPERTY_TYPES } from './types'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -16,6 +17,14 @@ export const normalizePhoneInput = (value: string): string =>
 
 export const isPhoneNumber = (value: string): boolean =>
   new RegExp(`^\\d{${MAX_PHONE_DIGITS}}$`).test(value);
+
+// "+91 98765 43210", "p:9876543210" and "098765 43210" are the same person:
+// every format carries the national number as its last 10 digits. Used where a
+// phone has to identify a lead (dedupe, CSV import), not where it is displayed.
+export const normalizeTenDigitPhone = (value: string): string => {
+  const digits = value.replace(/\D/g, '');
+  return digits.length > MAX_PHONE_DIGITS ? digits.slice(-MAX_PHONE_DIGITS) : digits;
+};
 
 // Local calendar formatting, YYYY-MM-DD.
 //
@@ -56,6 +65,39 @@ export const followupDaysPastDue = (
   const now = Date.parse(`${today}T00:00:00Z`);
   if (Number.isNaN(due) || Number.isNaN(now)) return 0;
   return Math.max(0, Math.round((now - due) / 86_400_000));
+};
+
+// A lead can want more than one type ("2BHK, 3BHK") and imported sheets write
+// the same demand with separators ("4_bhk") or with a longer phrase
+// ("3BHK, Marina Residences"). Both sides are compacted before comparing, so a
+// 4BHK filter matches every spelling, and a 2BHK filter never matches 3BHK.
+const compactPropertyType = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Maps a sheet value onto the canonical option ("4_bhk" -> "4BHK"), so new
+// imports are stored exactly like Add Lead stores them. Unrecognised values are
+// kept as written rather than silently discarded.
+export const normalizePropertyType = (raw: string): string => {
+  const compact = compactPropertyType(raw);
+  if (!compact) return raw.trim();
+  return (
+    PREFERRED_PROPERTY_TYPES.find((type) =>
+      compact.startsWith(compactPropertyType(type))
+    ) ?? raw.trim()
+  );
+};
+
+export const matchesPropertyType = (
+  preferredProperty: string,
+  propertyType: string
+): boolean => {
+  const needle = compactPropertyType(propertyType);
+  return preferredProperty
+    .split(',')
+    .some((token) => {
+      const value = compactPropertyType(token);
+      return value !== '' && value.startsWith(needle);
+    });
 };
 
 // Spreadsheet clients evaluate a cell whose text starts with =, +, -, @, tab or

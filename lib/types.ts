@@ -6,7 +6,16 @@ export type LeadStatus =
   | 'Site Visit'
   | 'Negotiation'
   | 'Closed Won'
-  | 'Closed Lost';
+  | 'Closed Lost'
+  // Historical CSV imports: real records, but never live pipeline.
+  | 'Imported';
+
+// The property types Add Lead offers. leads.preferred_property stores the
+// selected ones comma-joined ("2BHK, 3BHK"), so anything that reads or filters
+// on the field parses tokens rather than comparing whole strings.
+export const PREFERRED_PROPERTY_TYPES = ['Studio', '1BHK', '2BHK', '3BHK', '4BHK'] as const;
+
+export type PreferredPropertyType = (typeof PREFERRED_PROPERTY_TYPES)[number];
 
 export type InteractionType =
   | 'Phone Call'
@@ -37,7 +46,9 @@ export interface Lead {
   dob?: string; // YYYY-MM-DD
   marriage_anniversary?: string; // YYYY-MM-DD
   preferred_property: string;
-  assigned_rep_id: string;
+  // Null for imported historical leads: they arrived without an owner and wait
+  // for an Admin to assign them. RLS hides these rows from reps.
+  assigned_rep_id: string | null;
   status: LeadStatus;
   budget?: string;
   created_at: string;

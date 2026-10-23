@@ -18,6 +18,7 @@ const STATUS_FILTERS: Array<LeadStatus | 'All'> = [
   'Negotiation',
   'Closed Won',
   'Closed Lost',
+  'Imported',
 ];
 
 export default function MyLeadsView({

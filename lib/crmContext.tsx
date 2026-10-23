@@ -11,7 +11,7 @@ import {
   InteractionType,
   LeadEditableFields,
 } from './types';
-import { getTodayDateStr, isPhoneNumber } from './utils';
+import { getTodayDateStr, isPhoneNumber, normalizeTenDigitPhone } from './utils';
 import { getSupabaseClient, getSupabaseConfig } from './supabase/client';
 
 interface CRMContextType {
@@ -52,7 +52,9 @@ interface CRMContextType {
     marriage_anniversary?: string;
     preferred_property: string;
     budget?: string;
-    assigned_rep_id?: string;
+    // null = capture without an owner (Admin only); undefined = the caller's own
+    // profile, the rep's normal path.
+    assigned_rep_id?: string | null;
     initialNotes?: string;
     nextFollowupDate?: string;
   }) => Promise<{ lead: Lead | null; success: boolean; error?: string }>;
@@ -310,7 +312,9 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       marriage_anniversary?: string;
       preferred_property: string;
       budget?: string;
-      assigned_rep_id?: string;
+      // null = capture without an owner (Admin only); undefined = the caller's
+      // own profile, the rep's normal path.
+      assigned_rep_id?: string | null;
       initialNotes?: string;
       nextFollowupDate?: string;
     }) => {
@@ -325,7 +329,23 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return { lead: null, success: false, error: 'Phone numbers must contain exactly 10 digits.' };
       }
 
-      const repId = data.assigned_rep_id || currentUser.id;
+      // One lead per person. The database enforces this too (unique index on the
+      // last 10 digits), but checking first turns a raw constraint error into a
+      // sentence, and sees leads already loaded in this session.
+      const duplicate = leads.find(
+        (lead) => normalizeTenDigitPhone(lead.phone_1) === phone1
+      );
+      if (duplicate) {
+        return {
+          lead: null,
+          success: false,
+          error: `A lead with this phone number already exists: ${duplicate.name}.`,
+        };
+      }
+
+      // null stays null: an Admin may capture a walk-in without an owner.
+      const repId =
+        data.assigned_rep_id === null ? null : data.assigned_rep_id || currentUser.id;
 
       const { data: inserted, error } = await client
         .from('leads')
@@ -378,7 +398,8 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         if (interactionRow) setInteractions((prev) => [interactionRow as Interaction, ...prev]);
       }
 
-      if (data.nextFollowupDate) {
+      // followups.rep_id is NOT NULL, so an unassigned lead cannot carry one yet.
+      if (data.nextFollowupDate && repId) {
         const { data: followupRow, error: followupError } = await client
           .from('followups')
           .insert({
@@ -402,7 +423,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
 
       return { lead: newLead, success: true };
     },
-    [currentUser]
+    [currentUser, leads]
   );
 
   const logInteraction = useCallback(
@@ -560,6 +581,18 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'Phone numbers must contain exactly 10 digits.' };
       }
 
+      // Correcting a typo must not turn into a second record for a person who
+      // is already in the CRM (the unique index would reject it anyway).
+      const duplicate = leads.find(
+        (lead) => lead.id !== leadId && normalizeTenDigitPhone(lead.phone_1) === phone1
+      );
+      if (duplicate) {
+        return {
+          success: false,
+          error: `A lead with this phone number already exists: ${duplicate.name}.`,
+        };
+      }
+
       const { data: updated, error } = await client
         .from('leads')
         .update({
@@ -590,7 +623,7 @@ export function CRMProvider({ children }: { children: React.ReactNode }) {
       setLeads((prev) => prev.map((l) => (l.id === leadId ? (updated as Lead) : l)));
       return { success: true };
     },
-    []
+    [leads]
   );
 
   // Delete a lead captured by mistake. The database removes its interactions and
