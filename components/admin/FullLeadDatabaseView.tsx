@@ -7,12 +7,14 @@ import { escapeCsvField, getTodayDateStr, matchesPropertyType } from '@/lib/util
 import {
   Search,
   Download,
+  Upload,
   Home,
   Gift,
   ChevronRight,
   ArrowRightLeft,
   CheckCircle2,
 } from 'lucide-react';
+import ImportLeadsModal from './ImportLeadsModal';
 
 interface FullLeadDatabaseViewProps {
   onSelectLead: (lead: Lead) => void;
@@ -32,6 +34,7 @@ export default function FullLeadDatabaseView({
   const [targetRepId, setTargetRepId] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [reassignError, setReassignError] = useState<string | null>(null);
+  const [isImportOpen, setIsImportOpen] = useState(false);
 
   const reps = profiles.filter((p) => p.role === 'Sales_Rep');
 
@@ -173,6 +176,14 @@ export default function FullLeadDatabaseView({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              id="import-leads-csv-btn"
+              onClick={() => setIsImportOpen(true)}
+              className="px-3.5 py-2 bg-white hover:bg-[#f5f5f5] text-[#202020] text-xs font-mono border border-[#d8d8d8] rounded flex items-center gap-1.5 transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5 text-[#ff682c]" />
+              <span>Import CSV</span>
+            </button>
             <button
               id="export-leads-csv-btn"
               onClick={handleExportCSV}
@@ -343,6 +354,8 @@ export default function FullLeadDatabaseView({
           </table>
         </div>
       </div>
+
+      {isImportOpen && <ImportLeadsModal onClose={() => setIsImportOpen(false)} />}
 
       {/* Reassign Lead Modal */}
       {reassigningLead && (

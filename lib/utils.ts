@@ -100,6 +100,16 @@ export const matchesPropertyType = (
     });
 };
 
+// Rows imported before flat_size was canonicalised still hold "4_bhk" in the
+// database. Rewriting the label on read makes every screen, search and export
+// show what Add Lead stores, without touching stored history.
+export const normalizePreferredProperty = (value: string): string =>
+  value
+    .split(',')
+    .map((token) => normalizePropertyType(token))
+    .filter(Boolean)
+    .join(', ');
+
 // Spreadsheet clients evaluate a cell whose text starts with =, +, -, @, tab or
 // CR as a formula, and CSV quoting does not neutralize it. Every exported field
 // goes through this so a lead field cannot plant a formula in an admin's

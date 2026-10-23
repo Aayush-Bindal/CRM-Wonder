@@ -43,11 +43,18 @@ DO $$ BEGIN
         'Site Visit',
         'Negotiation',
         'Closed Won',
-        'Closed Lost'
+        'Closed Lost',
+        'Imported'
     );
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
+
+-- Historical CSV leads are not live pipeline: they arrive at their own stage so
+-- no report mistakes them for fresh inquiries. Repeated for existing databases;
+-- PostgreSQL allows ADD VALUE inside this transaction as long as the value is
+-- not used in it.
+ALTER TYPE public.lead_status ADD VALUE IF NOT EXISTS 'Imported';
 
 DO $$ BEGIN
     CREATE TYPE interaction_type AS ENUM (
@@ -95,11 +102,25 @@ CREATE TABLE IF NOT EXISTS public.leads (
     marriage_anniversary DATE,
     preferred_property TEXT NOT NULL,
     budget TEXT,
-    assigned_rep_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+    assigned_rep_id UUID REFERENCES public.profiles(id) ON DELETE RESTRICT,
     status lead_status NOT NULL DEFAULT 'New',
     created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
 );
+
+-- Historical imports arrive without an owner. RLS keeps NULL-assigned leads
+-- invisible to reps (`assigned_rep_id = auth.uid()` never matches NULL); Admins
+-- see them and can assign them later. Repeated here so an existing database
+-- migrates too (this single migration file is idempotent).
+ALTER TABLE public.leads ALTER COLUMN assigned_rep_id DROP NOT NULL;
+
+-- One lead per person. Identity is the last 10 digits of phone_1, so
+-- '+91 98765 43210', 'p:98765 43210' and '9876543210' collide. Add Lead and the
+-- CSV importer check before writing; this index makes the rule true under
+-- concurrency too. Applying it to a database that already holds duplicates
+-- fails — remove them first (supabase/README.md §5).
+CREATE UNIQUE INDEX IF NOT EXISTS leads_phone_identity_key
+  ON public.leads (right(regexp_replace(phone_1, '[^0-9]', '', 'g'), 10));
 
 -- INTERACTIONS TABLE (Logs conversation notes, attending rep, timestamps)
 CREATE TABLE IF NOT EXISTS public.interactions (

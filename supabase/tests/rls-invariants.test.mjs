@@ -59,6 +59,7 @@ const REP_B = '33333333-3333-3333-3333-333333333333';
 const LEAD_A = 'aaaaaaaa-0000-0000-0000-000000000001';
 const LEAD_B = 'bbbbbbbb-0000-0000-0000-000000000001';
 const FUP_A = 'ffffffff-0000-0000-0000-000000000001';
+const LEAD_IMPORTED = 'cccccccc-0000-0000-0000-000000000001';
 
 const asUser = async (db, userId, sql) => {
   await db.exec(`SET ROLE authenticated;`);
@@ -229,6 +230,57 @@ record('admin reads every interaction through RLS', adminInteractions.rows?.[0]?
 const adminProfiles = await asUser(db, ADMIN, `SELECT count(*)::int AS n FROM public.profiles`);
 record('admin reads every profile through RLS', adminProfiles.rows?.[0]?.n >= 3, `n=${adminProfiles.rows?.[0]?.n}`);
 
+// The same person must not exist twice under different phone formatting.
+const dupPhone = await asUser(
+  db,
+  ADMIN,
+  `INSERT INTO public.leads (name, phone_1, preferred_property, assigned_rep_id)
+   VALUES ('Duplicate Person', '+91 11111 11111', 'Flat A', '${REP_A}')`
+);
+record(
+  'one lead per normalized phone number',
+  !dupPhone.ok,
+  dupPhone.ok ? 'INSERT SUCCEEDED' : dupPhone.error?.slice(0, 60)
+);
+
+// Imported historical leads arrive unassigned. Only the nullable column makes
+// this insert possible; the policies must then keep the row away from every rep.
+const insUnassigned = await asUser(
+  db,
+  ADMIN,
+  `INSERT INTO public.leads (id, name, phone_1, preferred_property, assigned_rep_id)
+   VALUES ('${LEAD_IMPORTED}', 'Imported Old Lead', '+919000000095', 'Old Flat', NULL)
+   RETURNING id, assigned_rep_id`
+);
+record(
+  'admin inserts an unassigned imported lead',
+  insUnassigned.ok && insUnassigned.rows?.[0]?.assigned_rep_id === null,
+  insUnassigned.ok ? 'assigned_rep_id=NULL' : insUnassigned.error?.slice(0, 80)
+);
+const stampImported = await asUser(
+  db,
+  ADMIN,
+  `UPDATE public.leads SET status='Imported' WHERE id='${LEAD_IMPORTED}' RETURNING status`
+);
+record(
+  'a lead can hold the Imported stage',
+  stampImported.ok && stampImported.rows?.[0]?.status === 'Imported',
+  stampImported.ok ? 'status=Imported' : stampImported.error?.slice(0, 60)
+);
+const importedVisibleToRep = await asUser(db, REP_A, `SELECT count(*)::int AS n FROM public.leads WHERE id='${LEAD_IMPORTED}'`);
+record('rep cannot see an unassigned lead', importedVisibleToRep.rows?.[0]?.n === 0, `n=${importedVisibleToRep.rows?.[0]?.n}`);
+const repInsUnassigned = await asUser(
+  db,
+  REP_A,
+  `INSERT INTO public.leads (name, phone_1, preferred_property, assigned_rep_id)
+   VALUES ('Orphan Lead', '+910000000003', 'prop', NULL)`
+);
+record(
+  'rep cannot insert an unassigned lead',
+  !repInsUnassigned.ok,
+  repInsUnassigned.ok ? 'INSERT SUCCEEDED' : 'rejected by rep_insert_own_leads'
+);
+
 const ownLeads = await asUser(db, REP_A, `SELECT count(*)::int AS n FROM public.leads`);
 record('rep reads own lead', ownLeads.rows?.[0]?.n === 1, `n=${ownLeads.rows?.[0]?.n}`);
 const otherLeads = await asUser(db, REP_A, `SELECT count(*)::int AS n FROM public.leads WHERE id='${LEAD_B}'`);
@@ -271,6 +323,16 @@ record('cannot reassign to a deactivated representative', !rpcInactive.ok, rpcIn
 await asService(db, `UPDATE public.profiles SET is_active=TRUE WHERE id='${REP_B}'`);
 const rpcMissing = await asUser(db, ADMIN, `SELECT public.reassign_lead('00000000-0000-0000-0000-0000000000ff','${REP_B}')`);
 record('reassign_lead raises for an unknown lead', !rpcMissing.ok, rpcMissing.ok ? 'RPC SUCCEEDED' : rpcMissing.error?.slice(0, 60));
+
+// An imported (NULL-assigned) lead has to be assignable through the same atomic
+// path, otherwise it would be stuck invisible to the whole sales team.
+const importReassign = await asUser(db, ADMIN, `SELECT public.reassign_lead('${LEAD_IMPORTED}','${REP_B}')`);
+const importedState = await asService(db, `SELECT assigned_rep_id FROM public.leads WHERE id='${LEAD_IMPORTED}'`);
+record(
+  'reassign_lead() assigns an unassigned imported lead',
+  importReassign.ok && importedState.rows?.[0]?.assigned_rep_id === REP_B,
+  importReassign.ok ? `rep=${importedState.rows?.[0]?.assigned_rep_id}` : importReassign.error?.slice(0, 60)
+);
 
 console.log('\n=== Phase 7: privilege surface ===');
 const helperPrivs = await asService(db, `SELECT has_function_privilege('anon','public.is_admin()','EXECUTE') AS anon_admin,

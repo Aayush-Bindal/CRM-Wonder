@@ -106,3 +106,12 @@ export type LeadEditableFields = Pick<
   | 'preferred_property'
   | 'budget'
 >;
+
+// One validated CSV row. The CSV supplies flat_size/full_name/phone (an email
+// column is accepted and ignored); imported rows are inserted unassigned.
+export interface LeadImportRow {
+  name: string;
+  phone_1: string;
+  preferred_property: string;
+  status: LeadStatus;
+}
