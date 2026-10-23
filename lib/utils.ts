@@ -36,6 +36,28 @@ export const getRelativeDateStr = (offsetDays: number): string => {
   return toDateStr(d);
 };
 
+// Three or more past-due pending follow-ups flags a representative on the
+// Admin screens as needing attention.
+export const OVERDUE_ATTENTION_THRESHOLD = 3;
+
+// Both dates are YYYY-MM-DD local calendar strings, so a lexicographic compare
+// is a date compare. Parsing either through Date would reintroduce the UTC
+// shift that getTodayDateStr() exists to avoid.
+export const isFollowupDuePast = (
+  followup: { status: string; followup_date: string },
+  today = getTodayDateStr()
+): boolean => followup.status === 'Pending' && followup.followup_date < today;
+
+export const followupDaysPastDue = (
+  followupDate: string,
+  today = getTodayDateStr()
+): number => {
+  const due = Date.parse(`${followupDate}T00:00:00Z`);
+  const now = Date.parse(`${today}T00:00:00Z`);
+  if (Number.isNaN(due) || Number.isNaN(now)) return 0;
+  return Math.max(0, Math.round((now - due) / 86_400_000));
+};
+
 // Spreadsheet clients evaluate a cell whose text starts with =, +, -, @, tab or
 // CR as a formula, and CSV quoting does not neutralize it. Every exported field
 // goes through this so a lead field cannot plant a formula in an admin's
