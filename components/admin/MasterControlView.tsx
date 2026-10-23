@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useCRM } from '@/lib/crmContext';
 import { Lead } from '@/lib/types';
@@ -26,6 +26,10 @@ export default function MasterControlView({
   onNavigateTab,
 }: MasterControlViewProps) {
   const { leads, interactions, followups, profiles } = useCRM();
+
+  // The comparison chart is a drill-down, not part of the at-a-glance pulse:
+  // it stays collapsed until the Admin asks for it.
+  const [showPerformance, setShowPerformance] = useState(false);
 
   // Pulse Stats across entire real estate sales team
   const totalLeads = leads.length;
@@ -147,7 +151,10 @@ export default function MasterControlView({
         </div>
       </div>
 
-      <TeamPerformanceChart />
+      <TeamPerformanceChart
+        expanded={showPerformance}
+        onToggle={() => setShowPerformance((open) => !open)}
+      />
 
       {/* Real-time Interaction Feed */}
       <div>

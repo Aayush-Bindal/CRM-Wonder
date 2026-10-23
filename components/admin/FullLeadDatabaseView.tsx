@@ -2,8 +2,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { useCRM } from '@/lib/crmContext';
-import { Lead } from '@/lib/types';
-import { escapeCsvField, getTodayDateStr } from '@/lib/utils';
+import { Lead, PREFERRED_PROPERTY_TYPES } from '@/lib/types';
+import { escapeCsvField, getTodayDateStr, matchesPropertyType } from '@/lib/utils';
 import {
   Search,
   Download,
@@ -29,6 +29,7 @@ export default function FullLeadDatabaseView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRepFilter, setSelectedRepFilter] = useState('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('all');
+  const [selectedPropertyFilter, setSelectedPropertyFilter] = useState('all');
   const [reassigningLead, setReassigningLead] = useState<Lead | null>(null);
   const [targetRepId, setTargetRepId] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -37,6 +38,19 @@ export default function FullLeadDatabaseView({
 
   const reps = profiles.filter((p) => p.role === 'Sales_Rep');
 
+  // Per-type totals across every lead, so the Admin can read the demand mix
+  // straight from the filter instead of opening an export.
+  const propertyTypeCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const type of PREFERRED_PROPERTY_TYPES) counts[type] = 0;
+    for (const lead of leads) {
+      for (const type of PREFERRED_PROPERTY_TYPES) {
+        if (matchesPropertyType(lead.preferred_property, type)) counts[type] += 1;
+      }
+    }
+    return counts;
+  }, [leads]);
+
   // Filtered Leads
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -44,6 +58,12 @@ export default function FullLeadDatabaseView({
         return false;
       }
       if (selectedStatusFilter !== 'all' && lead.status !== selectedStatusFilter) {
+        return false;
+      }
+      if (
+        selectedPropertyFilter !== 'all' &&
+        !matchesPropertyType(lead.preferred_property, selectedPropertyFilter)
+      ) {
         return false;
       }
       const q = searchQuery.toLowerCase().trim();
@@ -57,7 +77,7 @@ export default function FullLeadDatabaseView({
         (lead.address && lead.address.toLowerCase().includes(q))
       );
     });
-  }, [leads, selectedRepFilter, selectedStatusFilter, searchQuery]);
+  }, [leads, selectedRepFilter, selectedStatusFilter, selectedPropertyFilter, searchQuery]);
 
   // Export to CSV.
   // Two hazards handled here: a cell beginning with =, +, -, @, tab or CR is
@@ -183,7 +203,7 @@ export default function FullLeadDatabaseView({
         )}
 
         {/* Search & Filters */}
-        <div className="mt-5 pt-4 border-t border-[#e0e0e0] grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="mt-5 pt-4 border-t border-[#e0e0e0] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="relative sm:col-span-1">
             <Search className="w-4 h-4 text-[#828282] absolute left-3 top-2.5" />
             <input
@@ -220,6 +240,20 @@ export default function FullLeadDatabaseView({
             <option value="Negotiation">Negotiation</option>
             <option value="Closed Won">Closed Won</option>
             <option value="Closed Lost">Closed Lost</option>
+          </select>
+
+          <select
+            id="filter-preferred-property"
+            value={selectedPropertyFilter}
+            onChange={(e) => setSelectedPropertyFilter(e.target.value)}
+            className="text-xs p-2 bg-white border border-[#e8e8e8] rounded text-[#202020] font-mono"
+          >
+            <option value="all">All Preferred Properties</option>
+            {PREFERRED_PROPERTY_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {type} ({propertyTypeCounts[type]})
+              </option>
+            ))}
           </select>
         </div>
       </div>

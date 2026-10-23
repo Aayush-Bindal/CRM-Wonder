@@ -58,6 +58,23 @@ export const followupDaysPastDue = (
   return Math.max(0, Math.round((now - due) / 86_400_000));
 };
 
+// A lead can want more than one type ("2BHK, 3BHK") and older/hand-entered
+// records carry the type as the start of a longer phrase ("3BHK, Marina
+// Residences", "2BHK Lakeview"). Matching per comma-separated token keeps a
+// "2BHK" filter from also catching a "3BHK".
+export const matchesPropertyType = (
+  preferredProperty: string,
+  propertyType: string
+): boolean => {
+  const needle = propertyType.toLowerCase();
+  return preferredProperty
+    .split(',')
+    .some((token) => {
+      const value = token.trim().toLowerCase();
+      return value === needle || value.startsWith(`${needle} `);
+    });
+};
+
 // Spreadsheet clients evaluate a cell whose text starts with =, +, -, @, tab or
 // CR as a formula, and CSV quoting does not neutralize it. Every exported field
 // goes through this so a lead field cannot plant a formula in an admin's

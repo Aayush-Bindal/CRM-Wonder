@@ -8,6 +8,13 @@ export type LeadStatus =
   | 'Closed Won'
   | 'Closed Lost';
 
+// The property types Add Lead offers. leads.preferred_property stores the
+// selected ones comma-joined ("2BHK, 3BHK"), so anything that reads or filters
+// on the field parses tokens rather than comparing whole strings.
+export const PREFERRED_PROPERTY_TYPES = ['Studio', '1BHK', '2BHK', '3BHK', '4BHK'] as const;
+
+export type PreferredPropertyType = (typeof PREFERRED_PROPERTY_TYPES)[number];
+
 export type InteractionType =
   | 'Phone Call'
   | 'Site Visit'

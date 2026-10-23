@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useCRM } from '@/lib/crmContext';
+import { PREFERRED_PROPERTY_TYPES } from '@/lib/types';
 import { getRelativeDateStr, normalizePhoneInput } from '@/lib/utils';
-import { X, Calendar, Gift, Heart } from 'lucide-react';
+import { X, Calendar, Gift, Heart, Check, ChevronDown } from 'lucide-react';
 
 interface QuickAddLeadModalProps {
   isOpen: boolean;
@@ -15,9 +16,10 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
 
   const [name, setName] = useState('');
   const [phone1, setPhone1] = useState('');
-  const [mobile2, setMobile2] = useState('');
   const [address, setAddress] = useState('');
-  const [preferredProperty, setPreferredProperty] = useState('');
+  const [preferredProperty, setPreferredProperty] = useState<string[]>([]);
+  const [isPropertyMenuOpen, setIsPropertyMenuOpen] = useState(false);
+  const propertyFieldRef = useRef<HTMLDivElement>(null);
   const [budget, setBudget] = useState('');
   const [dob, setDob] = useState('');
   const [anniversary, setAnniversary] = useState('');
@@ -32,6 +34,22 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // A click anywhere outside the field closes the option list, the way any
+  // dropdown behaves; an inline expanded list would push the rest of the form
+  // around instead.
+  useEffect(() => {
+    if (!isPropertyMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (propertyFieldRef.current && !propertyFieldRef.current.contains(event.target as Node)) {
+        setIsPropertyMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [isPropertyMenuOpen]);
+
   if (!isOpen) return null;
 
   const isAdmin = currentUser?.role === 'Admin';
@@ -39,7 +57,13 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !phone1.trim() || !preferredProperty.trim()) {
+    if (!name.trim() || !phone1.trim()) {
+      return;
+    }
+    // Nothing native enforces a button-based multi-select, so say why the form
+    // did not submit.
+    if (preferredProperty.length === 0) {
+      setFormError('Select at least one preferred property type.');
       return;
     }
 
@@ -54,9 +78,8 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
     const result = await addLead({
       name: name.trim(),
       phone_1: normalizePhoneInput(phone1),
-      mobile_2: normalizePhoneInput(mobile2) || undefined,
       address: address.trim() || undefined,
-      preferred_property: preferredProperty.trim(),
+      preferred_property: preferredProperty.join(', '),
       budget: budget.trim() || undefined,
       dob: dob || undefined,
       marriage_anniversary: anniversary || undefined,
@@ -141,35 +164,81 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
               />
             </div>
 
-            <div>
+            <div ref={propertyFieldRef} className="relative">
               <label className="block text-[11px] font-mono uppercase text-[#4d4d4d] mb-1">
-                Secondary Mobile 2 (Optional)
+                Preferred Property <span className="text-red-500">*</span>
               </label>
-              <input
-                id="quick-add-phone-2"
-                type="tel"
-                inputMode="numeric"
-                maxLength={10}
-                placeholder="9876543210"
-                value={mobile2}
-                onChange={(e) => setMobile2(normalizePhoneInput(e.target.value))}
-                className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-mono uppercase text-[#4d4d4d] mb-1">
-                Preferred Property / Flat Unit <span className="text-red-500">*</span>
-              </label>
-              <input
+              <button
                 id="quick-add-property"
-                required
-                type="text"
-                placeholder="e.g. 3BHK Flat 1204, Marina Residences"
-                value={preferredProperty}
-                onChange={(e) => setPreferredProperty(e.target.value)}
-                className="w-full text-xs p-2.5 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] focus:outline-none focus:border-[#202020]"
-              />
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={isPropertyMenuOpen}
+                onClick={() => setIsPropertyMenuOpen((open) => !open)}
+                className="w-full min-h-[38px] flex items-center justify-between gap-2 text-xs p-2 bg-[#ffffff] border border-[#e8e8e8] rounded text-[#202020] text-left focus:outline-none focus:border-[#202020]"
+              >
+                <span className="flex flex-wrap items-center gap-1">
+                  {preferredProperty.length === 0 ? (
+                    <span className="text-[#828282]">Select property type(s)</span>
+                  ) : (
+                    preferredProperty.map((option) => (
+                      <span
+                        key={option}
+                        className="px-1.5 py-0.5 rounded bg-[#efefef] text-[#202020] font-mono text-[11px]"
+                      >
+                        {option}
+                      </span>
+                    ))
+                  )}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 shrink-0 text-[#828282] transition-transform ${
+                    isPropertyMenuOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {isPropertyMenuOpen && (
+                <div
+                  role="listbox"
+                  aria-multiselectable="true"
+                  aria-label="Preferred property types"
+                  className="absolute z-20 mt-1 w-full bg-white border border-[#e8e8e8] rounded shadow-lg p-1"
+                >
+                  {PREFERRED_PROPERTY_TYPES.map((option) => {
+                    const selected = preferredProperty.includes(option);
+                    return (
+                      <button
+                        key={option}
+                        id={`quick-add-property-option-${option.toLowerCase()}`}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() =>
+                          setPreferredProperty((prev) =>
+                            prev.includes(option)
+                              ? prev.filter((value) => value !== option)
+                              : PREFERRED_PROPERTY_TYPES.filter(
+                                  (candidate) => candidate === option || prev.includes(candidate)
+                                )
+                          )
+                        }
+                        className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-[#202020] text-left hover:bg-[#f5f5f5] transition-colors"
+                      >
+                        <span
+                          className={`w-3.5 h-3.5 flex items-center justify-center border rounded-sm ${
+                            selected
+                              ? 'bg-[#202020] border-[#202020] text-white'
+                              : 'border-[#d8d8d8] bg-white'
+                          }`}
+                        >
+                          {selected && <Check className="w-3 h-3" />}
+                        </span>
+                        <span className="font-mono">{option}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div>
@@ -298,7 +367,7 @@ export default function QuickAddLeadModal({ isOpen, onClose }: QuickAddLeadModal
             <button
               id="submit-quick-add-btn"
               type="submit"
-              disabled={loading || !name.trim() || !phone1.trim() || !preferredProperty.trim()}
+              disabled={loading || !name.trim() || !phone1.trim() || preferredProperty.length === 0}
               className="px-5 py-2.5 bg-[#202020] text-white text-xs font-medium hover:bg-black transition-colors disabled:opacity-50"
             >
               {loading ? 'Adding Lead...' : 'Add Lead & Schedule Follow-Up'}
